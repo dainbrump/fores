@@ -1,0 +1,19 @@
+[package]
+name = "fores"
+version = "0.1.0"
+edition = "2021"
+authors = ["Mark Litchfield<mark.a.litchfield@proton.me>"]
+description = "A Rust library for parsing SSH client configuration files. Named after Fores, the Latin word for 'door', reflecting the SSH client's role in establishing a connection to a remote server."
+repository = "https://github.com/dainbrump/fores"
+license = "MIT"
+keywords = ["ssh", "config", "parser"]
+categories = ["config", "parser-implementations"]
+
+[dependencies]
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+thiserror = "1.0"
+
+[lib]
+name = "fores"
+path = "src/lib.rs"
