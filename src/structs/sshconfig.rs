@@ -1,5 +1,4 @@
 use crate::config::ForesConfig;
-use crate::constants;
 use crate::error::ConfigError;
 use crate::structs::enums::{
     addressfamily::AddressFamily,
@@ -880,7 +879,9 @@ impl SshConfigHost {
     /// Sets the `ciphers` field, which specifies the ciphers allowed for protocol version 2.
     ///
     /// The `ciphers` string should be a comma-separated list of ciphers in order of preference.
-    /// This method validates that each cipher in the list is supported.
+    /// This method validates that each cipher in the list is supported. A custom set of ciphers
+    /// may be defined in the `ForesConfig` struct. The default ciphers are defined as a constant in
+    /// `constants.rs`.
     ///
     /// # Errors
     ///
@@ -889,7 +890,11 @@ impl SshConfigHost {
     ///
     /// For more information, see the **Ciphers** section in the
     /// [ssh_config man page](https://linux.die.net/man/5/ssh_config).
-    pub(crate) fn set_ciphers(&mut self, ciphers: &str) -> Result<(), ConfigError> {
+    pub(crate) fn set_ciphers(
+        &mut self,
+        ciphers: &str,
+        config: &ForesConfig,
+    ) -> Result<(), ConfigError> {
         let values: Vec<&str> = ciphers
             .split(|c| c == ' ' || c == ',')
             .map(str::trim)
@@ -901,7 +906,7 @@ impl SshConfigHost {
         }
 
         for cipher in &values {
-            if !constants::VALID_CIPHERS.contains(cipher) {
+            if !config.permitted_ciphers.contains(cipher) {
                 return Err(ConfigError::InvalidValue {
                     field: "ciphers",
                     value: cipher.to_string(),
@@ -913,26 +918,38 @@ impl SshConfigHost {
         Ok(())
     }
 
-    /// Sets the `compression_level` field, which specifies the compression level to use if compression is enabled.
-    ///
-    /// The `compression_level` string should be a numeric value between 1 (fast) and 9 (slow, best).
+    /// Sets the `compression_level` field, which specifies the compression level to use if
+    /// compression is enabled. By default, the compression level is 6. Valid values are between 1
+    /// (fast) and 9 (slow, best). Custom compression levels may be defined in the `ForesConfig`.
     ///
     /// # Errors
     ///
-    /// Returns `ConfigError::InvalidValue` if the provided `compression_level` string does not parse to a valid `u8`
-    /// integer or if the integer value is not within the range of 1 to 9.
+    /// Returns `ConfigError::InvalidValue` if the provided `compression_level` string does not
+    /// parse to a valid `u8` integer or if the integer value is not within the range defined in the
+    /// supplied config.
     ///
     /// For more information, see the **CompressionLevel** section in the
     /// [ssh_config man page](https://linux.die.net/man/5/ssh_config).
-    pub(crate) fn set_compressionlevel(&mut self, compression: &str) -> Result<(), ConfigError> {
-        self.compression_level =
-            Some(self.parse_and_validate_u8_range(compression, "compression_level", 1, 9)?);
+    pub(crate) fn set_compressionlevel(
+        &mut self,
+        value: &str,
+        config: &ForesConfig,
+    ) -> Result<(), ConfigError> {
+        self.compression_level = Some(self.parse_and_validate_u8_range(
+            value,
+            "compression_level",
+            config.min_compression_level,
+            config.max_compression_level,
+        )?);
         Ok(())
     }
 
     /// Sets the `connection_attempts` field, which specifies the number of tries **ssh(1)** will
     /// attempt to connect to the server. The `connection_attempts` should be a number greater than
-    /// 0. This method validates that the `connection_attempts` is a valid number.
+    /// 0. This method validates that the `connection_attempts` is a valid number. The theorectical
+    /// maximum number of connection attempts is defined in the `ForesConfig` struct. The default
+    /// maximum is u32::MAX or 4294967295. This is an absurdly high number but is permitted by the
+    /// SSH protocol. We recommend setting a more reasonable maximum in the `ForesConfig` struct.
     ///
     /// # Errors
     ///
@@ -955,16 +972,51 @@ impl SshConfigHost {
         Ok(())
     }
 
-    pub(crate) fn set_connecttimeout(&mut self, timeout: &str) -> Result<(), ConfigError> {
-        if let Ok(parsed_value) = timeout.parse::<u32>() {
-            self.connect_timeout = Some(parsed_value);
-            Ok(())
-        } else {
-            Err(ConfigError::InvalidValue { field: "connect_timeout", value: timeout.to_string() })
-        }
+    /// Sets the `connect_timeout` field, which specifies the timeout (in seconds) for connecting to
+    /// the server. The `connect_timeout` should be a number greater than or equal to 0. This method
+    /// validates that the `connect_timeout` is a valid number. The maximum timeout is defined in
+    /// the `ForesConfig` struct. The default maximum is u32::MAX or 4294967295. This is also an
+    /// absurdly large but permitted value. We recommend setting a more reasonable maximum in the
+    /// `ForesConfig` struct.
+    ///
+    /// # Errors
+    ///
+    /// Returns `ConfigError::InvalidValue` if the `connect_timeout` value is not valid.
+    ///
+    /// For more information, see the **ConnectTimeout** section in the
+    /// [ssh_config man page](https://linux.die.net/man/5/ssh_config).
+    pub(crate) fn set_connecttimeout(
+        &mut self,
+        timeout: &str,
+        config: &ForesConfig,
+    ) -> Result<(), ConfigError> {
+        self.connect_timeout = Some(self.parse_and_validate_u32_range(
+            timeout,
+            "connect_timeout",
+            0,
+            config.max_connect_timeout,
+        )?);
+        Ok(())
     }
 
-    pub(crate) fn set_host_key_algorithms(&mut self, algorithms: &str) -> Result<(), ConfigError> {
+    /// Sets the `host_key_algorithms` field, which specifies the key exchange algorithms in order
+    /// of preference. The key exchange algorithm is used in protocol version 2 for key exchange.
+    /// Multiple algorithms must be comma-separated. The default is defined in the `ForesConfig`.
+    /// The default list may be customized to include additional algorithms or exclude algorithms
+    /// that may not be supported by the consumer application implementing this library.
+    ///
+    /// # Errors
+    ///
+    /// Returns `ConfigError::InvalidValue` if the `host_key_algorithms` string is empty or if any
+    /// of the specified algorithms are not valid.
+    ///
+    /// For more information, see the **HostKeyAlgorithms** section in the
+    /// [ssh_config man page](https://linux.die.net/man/5/ssh_config).
+    pub(crate) fn set_host_key_algorithms(
+        &mut self,
+        algorithms: &str,
+        config: &ForesConfig,
+    ) -> Result<(), ConfigError> {
         let values: Vec<&str> = algorithms
             .split(|c| c == ' ' || c == ',')
             .map(str::trim)
@@ -979,7 +1031,7 @@ impl SshConfigHost {
         }
 
         for algorithm in &values {
-            if !constants::VALID_HOST_KEY_ALGORITHMS.contains(algorithm) {
+            if !config.permitted_host_key_algorithms.contains(algorithm) {
                 return Err(ConfigError::InvalidValue {
                     field: "hostkeyalgorithms",
                     value: algorithm.to_string(),
@@ -991,7 +1043,25 @@ impl SshConfigHost {
         Ok(())
     }
 
-    pub(crate) fn set_kbd_interactive_devices(&mut self, devices: &str) -> Result<(), ConfigError> {
+    /// Sets the `kbd_interactive_devices` field, which specifies the devices that will be used for
+    /// keyboard-interactive authentication. The `kbd_interactive_devices` string should be a
+    /// comma-separated list of devices. The default is `pam`. The list of valid devices is defined
+    /// in the `ForesConfig` struct. The default list may be customized to include additional
+    /// devices or exclude devices that may not be supported by the consumer application
+    /// implementing this library.
+    ///
+    /// # Errors
+    ///
+    /// Returns `ConfigError::InvalidValue` if the `kbd_interactive_devices` string is empty or if
+    /// any of the specified devices are not valid.
+    ///
+    /// For more information, see the **KbdInteractiveDevices** section in the
+    /// [ssh_config man page](https://linux.die.net/man/5/ssh_config).
+    pub(crate) fn set_kbd_interactive_devices(
+        &mut self,
+        devices: &str,
+        config: &ForesConfig,
+    ) -> Result<(), ConfigError> {
         let values: Vec<&str> = devices
             .split(|c| c == ' ' || c == ',')
             .map(str::trim)
@@ -1006,7 +1076,7 @@ impl SshConfigHost {
         }
 
         for device in &values {
-            if !constants::VALID_KBD_INTERACTIVE_DEVICES.contains(device) {
+            if !config.permitted_kbd_interactive_devices.contains(device) {
                 return Err(ConfigError::InvalidValue {
                     field: "kbd_interactive_devices",
                     value: device.to_string(),
@@ -1018,7 +1088,21 @@ impl SshConfigHost {
         Ok(())
     }
 
-    pub(crate) fn set_macs(&mut self, macs: &str) -> Result<(), ConfigError> {
+    /// Sets the `macs` field, which specifies the MAC (message authentication code) algorithms in
+    /// order of preference. The MAC algorithm is used in protocol version 2 for data integrity
+    /// protection. Multiple algorithms must be comma-separated. The default is defined in the
+    /// `ForesConfig`. The default list may be customized to include additional algorithms or
+    /// exclude algorithms that may not be supported by the consumer application implementing this
+    /// library.
+    ///
+    /// # Errors
+    ///
+    /// Returns `ConfigError::InvalidValue` if the `macs` string is empty or if any of the specified
+    /// MAC algorithms are not valid.
+    ///
+    /// For more information, see the **MACs** section in the
+    /// [ssh_config man page](https://linux.die.net/man/5/ssh_config).
+    pub(crate) fn set_macs(&mut self, macs: &str, config: &ForesConfig) -> Result<(), ConfigError> {
         let values: Vec<&str> =
             macs.split(|c| c == ' ' || c == ',').map(str::trim).filter(|s| !s.is_empty()).collect();
 
@@ -1027,7 +1111,7 @@ impl SshConfigHost {
         }
 
         for mac in &values {
-            if !constants::VALID_MACS.contains(mac) {
+            if !config.permitted_macs.contains(mac) {
                 return Err(ConfigError::InvalidValue { field: "macs", value: mac.to_string() });
             }
         }
@@ -1036,23 +1120,67 @@ impl SshConfigHost {
         Ok(())
     }
 
-    pub(crate) fn set_numberofpasswordprompts(&mut self, prompts: &str) -> Result<(), ConfigError> {
-        if let Ok(parsed_value) = prompts.parse::<u32>() {
-            self.number_of_password_prompts = Some(parsed_value);
-            Ok(())
-        } else {
-            Err(ConfigError::InvalidValue {
-                field: "number_of_password_prompts",
-                value: prompts.to_string(),
-            })
-        }
-    }
-
-    pub(crate) fn set_port(&mut self, port: &str) -> Result<(), ConfigError> {
-        self.port = Some(self.parse_and_validate_u16_range(port, "port", 0, u16::MAX)?);
+    /// Sets the `number_of_password_prompts` field, which specifies the number of password prompts
+    /// **ssh(1)** will attempt before giving up. The `number_of_password_prompts` should be a
+    /// number greater than or equal to 0. This method validates that the `number_of_password_prompts`
+    /// is a valid number. The maximum number of password prompts is defined in the `ForesConfig`
+    /// struct. The default maximum is u32::MAX or 4294967295. This is an absurdly high number but
+    /// is permitted by the SSH protocol. We recommend setting a more reasonable maximum in the
+    /// `ForesConfig` struct.
+    ///
+    /// # Errors
+    ///
+    /// Returns `ConfigError::InvalidValue` if the `number_of_password_prompts` value is not valid.
+    ///
+    /// For more information, see the **NumberOfPasswordPrompts** section in the
+    /// [ssh_config man page](https://linux.die.net/man/5/ssh_config).
+    pub(crate) fn set_numberofpasswordprompts(
+        &mut self,
+        prompts: &str,
+        config: &ForesConfig,
+    ) -> Result<(), ConfigError> {
+        self.number_of_password_prompts = Some(self.parse_and_validate_u32_range(
+            prompts,
+            "number_of_password_prompts",
+            0,
+            config.max_password_prompts,
+        )?);
         Ok(())
     }
 
+    /// Sets the `port` field, which specifies the port number to connect to on the remote host. The
+    /// `port` should be a number between 1 and 65535. This method validates that the `port` is a
+    /// valid number. The maximum port number is defined in the `ForesConfig` struct. The default
+    /// maximum is 65535.
+    ///
+    /// # Errors
+    ///
+    /// Returns `ConfigError::InvalidValue` if the `port` value is not valid.
+    ///
+    /// For more information, see the **Port** section in the
+    /// [ssh_config man page](https://linux.die.net/man/5/ssh_config).
+    pub(crate) fn set_port(&mut self, port: &str, config: &ForesConfig) -> Result<(), ConfigError> {
+        self.port = Some(self.parse_and_validate_u16_range(
+            port,
+            "port",
+            config.min_port,
+            config.max_port,
+        )?);
+        Ok(())
+    }
+
+    /// Sets the `protocol` field, which specifies the protocol versions that **ssh(1)** should use
+    /// in order of preference. The `protocol` string should be a space-separated list of protocol
+    /// versions. The default is `2,1`. This method validates that each protocol in the list is
+    /// supported. The default list of protocols is defined in the `ForesConfig` struct.
+    ///
+    /// # Errors
+    ///
+    /// Returns `ConfigError::InvalidValue` if the `protocol` string is empty or if any of the
+    /// specified protocols are not valid.
+    ///
+    /// For more information, see the **Protocol** section in the
+    /// [ssh_config man page](https://linux.die.net/man/5/ssh_config).
     pub(crate) fn set_protocol(&mut self, protocols: &str) -> Result<(), ConfigError> {
         let values: Vec<&str> = protocols
             .split(|c| c == ' ' || c == ',')
@@ -1122,28 +1250,58 @@ impl SshConfigHost {
         }
     }
 
-    pub(crate) fn set_serveralivecountmax(&mut self, count: &str) -> Result<(), ConfigError> {
-        if let Ok(parsed_value) = count.parse::<u32>() {
-            self.server_alive_count_max = Some(parsed_value);
-            Ok(())
-        } else {
-            Err(ConfigError::InvalidValue {
-                field: "server_alive_count_max",
-                value: count.to_string(),
-            })
-        }
+    /// Sets the `server_alive_count_max` field, which specifies the number of server alive messages
+    /// that may be sent without **ssh(1)** receiving any messages back from the server. If this
+    /// threshold is reached while server alive messages are being sent, **ssh(1)** will disconnect
+    /// from the server, terminating the session. The default value is 3.
+    ///
+    /// # Errors
+    ///
+    /// Returns `ConfigError::InvalidValue` if the `server_alive_count_max` value is not valid.
+    ///
+    /// For more information, see the **ServerAliveCountMax** section in the
+    /// [ssh_config man page](https://linux.die.net/man/5/ssh_config).
+    pub(crate) fn set_serveralivecountmax(
+        &mut self,
+        count: &str,
+        config: &ForesConfig,
+    ) -> Result<(), ConfigError> {
+        self.server_alive_count_max = Some(self.parse_and_validate_u32_range(
+            count,
+            "server_alive_count_max",
+            0,
+            config.max_server_alive_count_max,
+        )?);
+        Ok(())
     }
 
-    pub(crate) fn set_serveraliveinterval(&mut self, interval: &str) -> Result<(), ConfigError> {
-        if let Ok(parsed_value) = interval.parse::<u32>() {
-            self.server_alive_interval = Some(parsed_value);
-            Ok(())
-        } else {
-            Err(ConfigError::InvalidValue {
-                field: "server_alive_interval",
-                value: interval.to_string(),
-            })
-        }
+    /// Sets the `server_alive_interval` field, which specifies a timeout interval in seconds after
+    /// which if no data has been received from the server, **ssh(1)** will send a message through
+    /// the encrypted channel to request a response from the server. The default is 0, indicating
+    /// that these messages will not be sent to the server. The default value is 0.
+    ///
+    /// If, for example, **ServerAliveInterval** (see below) is set to 15 and **ServerAliveCountMax**
+    /// is left at the default, if the server becomes unresponsive, ssh will disconnect after
+    /// approximately 45 seconds. This option applies to protocol version 2 only.
+    ///
+    /// # Errors
+    ///
+    /// Returns `ConfigError::InvalidValue` if the `server_alive_interval` value is not valid.
+    ///
+    /// For more information, see the **ServerAliveInterval** section in the
+    /// [ssh_config man page](https://linux.die.net/man/5/ssh_config).
+    pub(crate) fn set_serveraliveinterval(
+        &mut self,
+        interval: &str,
+        config: &ForesConfig,
+    ) -> Result<(), ConfigError> {
+        self.server_alive_interval = Some(self.parse_and_validate_u32_range(
+            interval,
+            "server_alive_interval",
+            0,
+            config.max_server_alive_interval,
+        )?);
+        Ok(())
     }
 
     pub fn set_property(
@@ -1163,14 +1321,14 @@ impl SshConfigHost {
             }
             "checkhostip" => self.check_host_ip = Some(YesNo::from_str_with_field(value, key)?),
             "cipher" => self.cipher = Some(value.to_string()),
-            "ciphers" => self.set_ciphers(value)?,
+            "ciphers" => self.set_ciphers(value, config)?,
             "clearallforwardings" => {
                 self.clear_all_forwardings = Some(YesNo::from_str_with_field(value, key)?)
             }
             "compression" => self.compression = Some(YesNo::from_str_with_field(value, key)?),
-            "compressionlevel" => self.set_compressionlevel(value)?,
+            "compressionlevel" => self.set_compressionlevel(value, config)?,
             "connectionattempts" => self.set_connectionattempts(value, config)?,
-            "connecttimeout" => self.set_connecttimeout(value)?,
+            "connecttimeout" => self.set_connecttimeout(value, config)?,
             "controlmaster" => {
                 self.control_master = Some(YesNoAskAutoAutoask::from_str_with_field(value, key)?)
             }
@@ -1212,7 +1370,7 @@ impl SshConfigHost {
             "hostbasedauthentication" => {
                 self.hostbased_authentication = Some(YesNo::from_str_with_field(value, key)?)
             }
-            "hostkeyalgorithms" => self.set_host_key_algorithms(value)?,
+            "hostkeyalgorithms" => self.set_host_key_algorithms(value, config)?,
             "hostkeyalias" => self.host_key_alias = Some(value.to_string()),
             "hostname" => self.host_name = Some(value.to_string()),
             "identitiesonly" => {
@@ -1223,23 +1381,23 @@ impl SshConfigHost {
             "kbdinteractiveauthentication" => {
                 self.kbd_interactive_authentication = Some(YesNo::from_str_with_field(value, key)?)
             }
-            "kbdinteractivedevices" => self.set_kbd_interactive_devices(value)?,
+            "kbdinteractivedevices" => self.set_kbd_interactive_devices(value, config)?,
             "localcommand" => self.local_command = Some(value.to_string()),
             "localforward" => self.local_forward = Some(value.to_string()),
             "loglevel" => self.log_level = Some(LogLevels::from_str(value)?),
-            "macs" => self.set_macs(value)?,
+            "macs" => self.set_macs(value, config)?,
             "nohostauthenticationforlocalhost" => {
                 self.no_host_authentication_for_localhost =
                     Some(YesNo::from_str_with_field(value, key)?)
             }
-            "numberofpasswordprompts" => self.set_numberofpasswordprompts(value)?,
+            "numberofpasswordprompts" => self.set_numberofpasswordprompts(value, config)?,
             "passwordauthentication" => {
                 self.password_authentication = Some(YesNo::from_str_with_field(value, key)?)
             }
             "permitlocalcommand" => {
                 self.permit_local_command = Some(YesNo::from_str_with_field(value, key)?)
             }
-            "port" => self.set_port(value)?,
+            "port" => self.set_port(value, config)?,
             "preferredauthentications" => self.preferred_authentications = Some(value.to_string()),
             "protocol" => self.set_protocol(value)?,
             "proxycommand" => self.proxy_command = Some(value.to_string()),
@@ -1255,8 +1413,8 @@ impl SshConfigHost {
                 self.rsa_authentication = Some(YesNo::from_str_with_field(value, key)?)
             }
             "sendenv" => self.send_env = Some(value.to_string()),
-            "serveralivecountmax" => self.set_serveralivecountmax(value)?,
-            "serveraliveinterval" => self.set_serveraliveinterval(value)?,
+            "serveralivecountmax" => self.set_serveralivecountmax(value, config)?,
+            "serveraliveinterval" => self.set_serveraliveinterval(value, config)?,
             "smartcarddevice" => self.smartcard_device = Some(value.to_string()),
             "stricthostkeychecking" => {
                 self.strict_host_key_checking = Some(YesNoAsk::from_str_with_field(value, key)?)
@@ -1289,6 +1447,12 @@ impl SshConfigHost {
         Ok(())
     }
 
+    /// Parses a string value into a `u8` integer and validates that the value is within the
+    /// specified range.
+    ///
+    /// # Errors
+    ///
+    /// Returns `ConfigError::ParseInteger` if the value cannot be parsed into a `u8` integer.
     pub(crate) fn parse_and_validate_u8_range(
         &mut self,
         value: &str,
@@ -1307,6 +1471,12 @@ impl SshConfigHost {
         }
     }
 
+    /// Parses a string value into a `u16` integer and validates that the value is within the
+    /// specified range.
+    ///
+    /// # Errors
+    ///
+    /// Returns `ConfigError::ParseInteger` if the value cannot be parsed into a `u16` integer.
     pub(crate) fn parse_and_validate_u16_range(
         &mut self,
         value: &str,
@@ -1325,6 +1495,12 @@ impl SshConfigHost {
         }
     }
 
+    /// Parses a string value into a `u32` integer and validates that the value is within the
+    /// specified range.
+    ///
+    /// # Errors
+    ///
+    /// Returns `ConfigError::ParseInteger` if the value cannot be parsed into a `u32` integer.
     pub(crate) fn parse_and_validate_u32_range(
         &mut self,
         value: &str,
@@ -1353,11 +1529,12 @@ mod tests {
     #[test]
     fn test_set_ciphers() {
         let mut host = SshConfigHost::new();
+        let config = ForesConfig::default();
 
-        host.set_ciphers("aes128-ctr,aes256-ctr").unwrap();
+        host.set_ciphers("aes128-ctr,aes256-ctr", &config).unwrap();
         assert_eq!(host.ciphers, Some("aes128-ctr,aes256-ctr".to_string()));
 
-        let result = host.set_ciphers("invalid-cipher");
+        let result = host.set_ciphers("invalid-cipher", &config);
         assert!(result.is_err());
         match result.unwrap_err() {
             ConfigError::InvalidValue { field, value, .. } => {
@@ -1371,14 +1548,15 @@ mod tests {
     #[test]
     fn test_set_compressionlevel() {
         let mut host = SshConfigHost::new();
+        let config = ForesConfig::default();
 
-        host.set_compressionlevel("1").unwrap();
+        host.set_compressionlevel("1", &config).unwrap();
         assert_eq!(host.compression_level, Some(1));
 
-        host.set_compressionlevel("9").unwrap();
+        host.set_compressionlevel("9", &config).unwrap();
         assert_eq!(host.compression_level, Some(9));
 
-        let result = host.set_compressionlevel("0");
+        let result = host.set_compressionlevel("0", &config);
         assert!(result.is_err());
         match result.unwrap_err() {
             ConfigError::InvalidValue { field, value, .. } => {
@@ -1388,7 +1566,7 @@ mod tests {
             _ => panic!("Expected ConfigError::InvalidValue"),
         }
 
-        let result = host.set_compressionlevel("10");
+        let result = host.set_compressionlevel("10", &config);
         assert!(result.is_err());
         match result.unwrap_err() {
             ConfigError::InvalidValue { field, value, .. } => {
