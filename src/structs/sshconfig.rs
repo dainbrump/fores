@@ -1,4 +1,5 @@
-use crate::config::ForesConfig;
+use crate::configuration::HostPolicy;
+use crate::directive_mapping::{ProtocolVersion, DIRECTIVE_TO_PROTOCOL_MAP};
 use crate::error::ConfigError;
 use crate::structs::enums::{
     addressfamily::AddressFamily,
@@ -764,19 +765,18 @@ pub struct SshConfigHost {
 impl SshConfigHost {
     /// Creates a new `SshConfigHost` instance with default values.
     ///
-    /// The `host` field is initialized to an empty string. All other fields
-    /// are initialized to `None`. This is useful for creating a new host entry
-    /// that can be modified as needed.
+    /// The `host` field is initialized to an empty string. All other fields are initialized to
+    /// `None`. This is useful for creating a new host entry that can be modified as needed.
     ///
     /// # Example
     /// ```
     /// use fores::structs::sshconfig::SshConfigHost;
-    /// use fores::config::ForesConfig;
+    /// use fores::configuration::HostPolicy;
     /// use fores::structs::enums::addressfamily::AddressFamily;
     /// use fores::structs::enums::shared::YesNo;
     ///
-    /// // Create a new ForesConfig instance with default values
-    /// let config = ForesConfig::default();
+    /// // Create a new HostPolicy instance with default values
+    /// let policy = HostPolicy::default();
     ///
     /// // Create a new host entry
     /// let mut host = SshConfigHost::new();
@@ -787,16 +787,16 @@ impl SshConfigHost {
     /// assert_eq!(host.unknown, None); // Default for unknown fields
     ///
     /// // Modify the host entry as needed
-    /// host.set_property("host", "example.com", &config);
+    /// host.set_property("host", "example.com", &policy);
     /// assert_eq!(host.host, "example.com");
     ///
-    /// host.set_property("addressfamily", "inet", &config);
+    /// host.set_property("addressfamily", "inet", &policy);
     /// assert_eq!(host.address_family, Some(AddressFamily::Inet));
     ///
-    /// host.set_property("port", "2222", &config);
+    /// host.set_property("port", "2222", &policy);
     /// assert_eq!(host.port, Some(2222));
     ///
-    /// host.set_property("batchmode", "yes", &config);
+    /// host.set_property("batchmode", "yes", &policy);
     /// assert_eq!(host.batch_mode, Some(YesNo::Yes));
     /// ```
     pub fn new() -> Self {
@@ -880,7 +880,7 @@ impl SshConfigHost {
     ///
     /// The `ciphers` string should be a comma-separated list of ciphers in order of preference.
     /// This method validates that each cipher in the list is supported. A custom set of ciphers
-    /// may be defined in the `ForesConfig` struct. The default ciphers are defined as a constant in
+    /// may be defined in the `HostPolicy`. The default ciphers are defined as a constant in
     /// `constants.rs`.
     ///
     /// # Errors
@@ -893,7 +893,7 @@ impl SshConfigHost {
     pub(crate) fn set_ciphers(
         &mut self,
         ciphers: &str,
-        config: &ForesConfig,
+        policy: &HostPolicy,
     ) -> Result<(), ConfigError> {
         let values: Vec<&str> = ciphers
             .split(|c| c == ' ' || c == ',')
@@ -902,11 +902,14 @@ impl SshConfigHost {
             .collect();
 
         if values.is_empty() {
-            return Err(ConfigError::InvalidValue { field: "ciphers", value: ciphers.to_string() });
+            return Err(ConfigError::EmptyDirective {
+                field: "ciphers",
+                value: ciphers.to_string(),
+            });
         }
 
         for cipher in &values {
-            if !config.permitted_ciphers.contains(cipher) {
+            if !policy.permitted_ciphers.contains(cipher) {
                 return Err(ConfigError::InvalidValue {
                     field: "ciphers",
                     value: cipher.to_string(),
@@ -920,7 +923,8 @@ impl SshConfigHost {
 
     /// Sets the `compression_level` field, which specifies the compression level to use if
     /// compression is enabled. By default, the compression level is 6. Valid values are between 1
-    /// (fast) and 9 (slow, best). Custom compression levels may be defined in the `ForesConfig`.
+    /// (fast) and 9 (slow, best). Custom compression level ranges may be defined in the
+    /// `HostPolicy` but must still be within the range of 1-9.
     ///
     /// # Errors
     ///
@@ -933,23 +937,23 @@ impl SshConfigHost {
     pub(crate) fn set_compressionlevel(
         &mut self,
         value: &str,
-        config: &ForesConfig,
+        policy: &HostPolicy,
     ) -> Result<(), ConfigError> {
         self.compression_level = Some(self.parse_and_validate_u8_range(
             value,
             "compression_level",
-            config.min_compression_level,
-            config.max_compression_level,
+            policy.min_compression_level,
+            policy.max_compression_level,
         )?);
         Ok(())
     }
 
     /// Sets the `connection_attempts` field, which specifies the number of tries **ssh(1)** will
     /// attempt to connect to the server. The `connection_attempts` should be a number greater than
-    /// 0. This method validates that the `connection_attempts` is a valid number. The theorectical
-    /// maximum number of connection attempts is defined in the `ForesConfig` struct. The default
+    /// 0. This method validates that the `connection_attempts` is a valid number. The maximum
+    /// number of connection attempts may be defined in the `HostPolicy`. The theoretical default
     /// maximum is u32::MAX or 4294967295. This is an absurdly high number but is permitted by the
-    /// SSH protocol. We recommend setting a more reasonable maximum in the `ForesConfig` struct.
+    /// SSH protocol. We recommend setting a more reasonable maximum in the `HostPolicy`.
     ///
     /// # Errors
     ///
@@ -960,13 +964,13 @@ impl SshConfigHost {
     pub(crate) fn set_connectionattempts(
         &mut self,
         attempts: &str,
-        config: &ForesConfig,
+        policy: &HostPolicy,
     ) -> Result<(), ConfigError> {
         let parsed_value = self.parse_and_validate_u32_range(
             attempts,
             "connection_attempts",
             1,
-            config.max_connection_attempts,
+            policy.max_connection_attempts,
         )?;
         self.connection_attempts = Some(parsed_value);
         Ok(())
@@ -975,9 +979,9 @@ impl SshConfigHost {
     /// Sets the `connect_timeout` field, which specifies the timeout (in seconds) for connecting to
     /// the server. The `connect_timeout` should be a number greater than or equal to 0. This method
     /// validates that the `connect_timeout` is a valid number. The maximum timeout is defined in
-    /// the `ForesConfig` struct. The default maximum is u32::MAX or 4294967295. This is also an
-    /// absurdly large but permitted value. We recommend setting a more reasonable maximum in the
-    /// `ForesConfig` struct.
+    /// the `HostPolicy`. The default maximum is u32::MAX or 4294967295. This is also an absurdly
+    /// large but permitted value. We recommend setting a more reasonable maximum in the
+    /// `HostPolicy`.
     ///
     /// # Errors
     ///
@@ -988,20 +992,20 @@ impl SshConfigHost {
     pub(crate) fn set_connecttimeout(
         &mut self,
         timeout: &str,
-        config: &ForesConfig,
+        policy: &HostPolicy,
     ) -> Result<(), ConfigError> {
         self.connect_timeout = Some(self.parse_and_validate_u32_range(
             timeout,
             "connect_timeout",
             0,
-            config.max_connect_timeout,
+            policy.max_connect_timeout,
         )?);
         Ok(())
     }
 
     /// Sets the `host_key_algorithms` field, which specifies the key exchange algorithms in order
     /// of preference. The key exchange algorithm is used in protocol version 2 for key exchange.
-    /// Multiple algorithms must be comma-separated. The default is defined in the `ForesConfig`.
+    /// Multiple algorithms must be comma-separated. The default is defined in the `HostPolicy`.
     /// The default list may be customized to include additional algorithms or exclude algorithms
     /// that may not be supported by the consumer application implementing this library.
     ///
@@ -1015,7 +1019,7 @@ impl SshConfigHost {
     pub(crate) fn set_host_key_algorithms(
         &mut self,
         algorithms: &str,
-        config: &ForesConfig,
+        policy: &HostPolicy,
     ) -> Result<(), ConfigError> {
         let values: Vec<&str> = algorithms
             .split(|c| c == ' ' || c == ',')
@@ -1024,19 +1028,24 @@ impl SshConfigHost {
             .collect();
 
         if values.is_empty() {
-            return Err(ConfigError::InvalidValue {
+            return Err(ConfigError::EmptyDirective {
                 field: "hostkeyalgorithms",
                 value: algorithms.to_string(),
             });
         }
 
+        let mut invalid_values: Vec<&str> = Vec::new();
         for algorithm in &values {
-            if !config.permitted_host_key_algorithms.contains(algorithm) {
-                return Err(ConfigError::InvalidValue {
-                    field: "hostkeyalgorithms",
-                    value: algorithm.to_string(),
-                });
+            if !policy.permitted_host_key_algorithms.contains(algorithm) {
+                invalid_values.push(algorithm);
             }
+        }
+
+        if invalid_values.len() > 0 {
+            return Err(ConfigError::InvalidValue {
+                field: "hostkeyalgorithms",
+                value: invalid_values.join(","),
+            });
         }
 
         self.host_key_algorithms = Some(values.join(","));
@@ -1046,9 +1055,9 @@ impl SshConfigHost {
     /// Sets the `kbd_interactive_devices` field, which specifies the devices that will be used for
     /// keyboard-interactive authentication. The `kbd_interactive_devices` string should be a
     /// comma-separated list of devices. The default is `pam`. The list of valid devices is defined
-    /// in the `ForesConfig` struct. The default list may be customized to include additional
-    /// devices or exclude devices that may not be supported by the consumer application
-    /// implementing this library.
+    /// in the `HostPolicy`. The default list may be customized to include additional devices or
+    /// exclude devices that may not be supported by the consumer application implementing this
+    /// library.
     ///
     /// # Errors
     ///
@@ -1060,7 +1069,7 @@ impl SshConfigHost {
     pub(crate) fn set_kbd_interactive_devices(
         &mut self,
         devices: &str,
-        config: &ForesConfig,
+        policy: &HostPolicy,
     ) -> Result<(), ConfigError> {
         let values: Vec<&str> = devices
             .split(|c| c == ' ' || c == ',')
@@ -1069,14 +1078,14 @@ impl SshConfigHost {
             .collect();
 
         if values.is_empty() {
-            return Err(ConfigError::InvalidValue {
+            return Err(ConfigError::EmptyDirective {
                 field: "kbd_interactive_devices",
                 value: devices.to_string(),
             });
         }
 
         for device in &values {
-            if !config.permitted_kbd_interactive_devices.contains(device) {
+            if !policy.permitted_kbd_interactive_devices.contains(device) {
                 return Err(ConfigError::InvalidValue {
                     field: "kbd_interactive_devices",
                     value: device.to_string(),
@@ -1091,7 +1100,7 @@ impl SshConfigHost {
     /// Sets the `macs` field, which specifies the MAC (message authentication code) algorithms in
     /// order of preference. The MAC algorithm is used in protocol version 2 for data integrity
     /// protection. Multiple algorithms must be comma-separated. The default is defined in the
-    /// `ForesConfig`. The default list may be customized to include additional algorithms or
+    /// `HostPolicy`. The default list may be customized to include additional algorithms or
     /// exclude algorithms that may not be supported by the consumer application implementing this
     /// library.
     ///
@@ -1102,16 +1111,16 @@ impl SshConfigHost {
     ///
     /// For more information, see the **MACs** section in the
     /// [ssh_config man page](https://linux.die.net/man/5/ssh_config).
-    pub(crate) fn set_macs(&mut self, macs: &str, config: &ForesConfig) -> Result<(), ConfigError> {
+    pub(crate) fn set_macs(&mut self, macs: &str, policy: &HostPolicy) -> Result<(), ConfigError> {
         let values: Vec<&str> =
             macs.split(|c| c == ' ' || c == ',').map(str::trim).filter(|s| !s.is_empty()).collect();
 
         if values.is_empty() {
-            return Err(ConfigError::InvalidValue { field: "macs", value: macs.to_string() });
+            return Err(ConfigError::EmptyDirective { field: "macs", value: macs.to_string() });
         }
 
         for mac in &values {
-            if !config.permitted_macs.contains(mac) {
+            if !policy.permitted_macs.contains(mac) {
                 return Err(ConfigError::InvalidValue { field: "macs", value: mac.to_string() });
             }
         }
@@ -1121,12 +1130,11 @@ impl SshConfigHost {
     }
 
     /// Sets the `number_of_password_prompts` field, which specifies the number of password prompts
-    /// **ssh(1)** will attempt before giving up. The `number_of_password_prompts` should be a
-    /// number greater than or equal to 0. This method validates that the `number_of_password_prompts`
-    /// is a valid number. The maximum number of password prompts is defined in the `ForesConfig`
-    /// struct. The default maximum is u32::MAX or 4294967295. This is an absurdly high number but
-    /// is permitted by the SSH protocol. We recommend setting a more reasonable maximum in the
-    /// `ForesConfig` struct.
+    /// **ssh(1)** will attempt before giving up. The `number_of_password_prompts` must be a number
+    /// greater than or equal to 0. This method validates that the `number_of_password_prompts` is
+    /// a valid number. The maximum number of password prompts is defined in the `HostPolicy`. The
+    /// default maximum is u32::MAX or 4294967295. This is an absurdly high number but is permitted
+    /// by the SSH protocol. We recommend setting a more reasonable maximum in the `HostPolicy`.
     ///
     /// # Errors
     ///
@@ -1137,21 +1145,21 @@ impl SshConfigHost {
     pub(crate) fn set_numberofpasswordprompts(
         &mut self,
         prompts: &str,
-        config: &ForesConfig,
+        policy: &HostPolicy,
     ) -> Result<(), ConfigError> {
         self.number_of_password_prompts = Some(self.parse_and_validate_u32_range(
             prompts,
             "number_of_password_prompts",
             0,
-            config.max_password_prompts,
+            policy.max_password_prompts,
         )?);
         Ok(())
     }
 
     /// Sets the `port` field, which specifies the port number to connect to on the remote host. The
     /// `port` should be a number between 1 and 65535. This method validates that the `port` is a
-    /// valid number. The maximum port number is defined in the `ForesConfig` struct. The default
-    /// maximum is 65535.
+    /// valid number. The maximum port number is defined in the `HostPolicy`. The default maximum is
+    /// 65535.
     ///
     /// # Errors
     ///
@@ -1159,12 +1167,12 @@ impl SshConfigHost {
     ///
     /// For more information, see the **Port** section in the
     /// [ssh_config man page](https://linux.die.net/man/5/ssh_config).
-    pub(crate) fn set_port(&mut self, port: &str, config: &ForesConfig) -> Result<(), ConfigError> {
+    pub(crate) fn set_port(&mut self, port: &str, policy: &HostPolicy) -> Result<(), ConfigError> {
         self.port = Some(self.parse_and_validate_u16_range(
             port,
             "port",
-            config.min_port,
-            config.max_port,
+            policy.min_port,
+            policy.max_port,
         )?);
         Ok(())
     }
@@ -1172,7 +1180,7 @@ impl SshConfigHost {
     /// Sets the `protocol` field, which specifies the protocol versions that **ssh(1)** should use
     /// in order of preference. The `protocol` string should be a space-separated list of protocol
     /// versions. The default is `2,1`. This method validates that each protocol in the list is
-    /// supported. The default list of protocols is defined in the `ForesConfig` struct.
+    /// supported. The default list of protocols is defined in the `HostPolicy`.
     ///
     /// # Errors
     ///
@@ -1189,7 +1197,7 @@ impl SshConfigHost {
             .collect();
 
         if values.is_empty() {
-            return Err(ConfigError::InvalidValue {
+            return Err(ConfigError::EmptyDirective {
                 field: "protocol",
                 value: protocols.to_string(),
             });
@@ -1228,7 +1236,7 @@ impl SshConfigHost {
         };
 
         if number_str.is_empty() {
-            return Err(ConfigError::InvalidValue {
+            return Err(ConfigError::EmptyDirective {
                 field: "rekey_limit",
                 value: value.to_string(),
             });
@@ -1264,13 +1272,13 @@ impl SshConfigHost {
     pub(crate) fn set_serveralivecountmax(
         &mut self,
         count: &str,
-        config: &ForesConfig,
+        policy: &HostPolicy,
     ) -> Result<(), ConfigError> {
         self.server_alive_count_max = Some(self.parse_and_validate_u32_range(
             count,
             "server_alive_count_max",
             0,
-            config.max_server_alive_count_max,
+            policy.max_server_alive_count_max,
         )?);
         Ok(())
     }
@@ -1280,9 +1288,9 @@ impl SshConfigHost {
     /// the encrypted channel to request a response from the server. The default is 0, indicating
     /// that these messages will not be sent to the server. The default value is 0.
     ///
-    /// If, for example, **ServerAliveInterval** (see below) is set to 15 and **ServerAliveCountMax**
-    /// is left at the default, if the server becomes unresponsive, ssh will disconnect after
-    /// approximately 45 seconds. This option applies to protocol version 2 only.
+    /// If, for example, **ServerAliveInterval** is set to 15 and **ServerAliveCountMax** is left
+    /// at the default, if the server becomes unresponsive, ssh will disconnect after approximately
+    /// 45 seconds. This option applies to protocol version 2 only.
     ///
     /// # Errors
     ///
@@ -1293,13 +1301,13 @@ impl SshConfigHost {
     pub(crate) fn set_serveraliveinterval(
         &mut self,
         interval: &str,
-        config: &ForesConfig,
+        policy: &HostPolicy,
     ) -> Result<(), ConfigError> {
         self.server_alive_interval = Some(self.parse_and_validate_u32_range(
             interval,
             "server_alive_interval",
             0,
-            config.max_server_alive_interval,
+            policy.max_server_alive_interval,
         )?);
         Ok(())
     }
@@ -1308,141 +1316,176 @@ impl SshConfigHost {
         &mut self,
         key: &'static str,
         value: &str,
-        config: &ForesConfig,
+        policy: &HostPolicy,
     ) -> Result<(), ConfigError> {
-        match key.to_lowercase().as_str() {
-            "host" => self.host = value.to_string(),
-            "addressfamily" => self.address_family = Some(AddressFamily::from_str(value)?),
-            "batchmode" => self.batch_mode = Some(YesNo::from_str_with_field(value, key)?),
-            "bindaddress" => self.bind_address = Some(value.to_string()),
-            "challengeresponseauthentication" => {
-                self.challenge_response_authentication =
-                    Some(YesNo::from_str_with_field(value, key)?)
+        let directive = key.to_lowercase();
+
+        if let Some(directive_support) = DIRECTIVE_TO_PROTOCOL_MAP.get(&directive) {
+            // Check if the directive is supported by any of the configured standards
+            if !policy.supported_standards.contains(&directive_support.standard) {
+                return Err(ConfigError::UnsupportedDirective {
+                    directive,
+                    standard: format!("{:?}", directive_support.standard),
+                });
             }
-            "checkhostip" => self.check_host_ip = Some(YesNo::from_str_with_field(value, key)?),
-            "cipher" => self.cipher = Some(value.to_string()),
-            "ciphers" => self.set_ciphers(value, config)?,
-            "clearallforwardings" => {
-                self.clear_all_forwardings = Some(YesNo::from_str_with_field(value, key)?)
+
+            if policy.enforce_standards_compliance
+                && directive_support.protocol == ProtocolVersion::OpenSSHV1
+            {
+                return Err(ConfigError::InvalidProtocol { directive, protocol: "v1".to_string() });
             }
-            "compression" => self.compression = Some(YesNo::from_str_with_field(value, key)?),
-            "compressionlevel" => self.set_compressionlevel(value, config)?,
-            "connectionattempts" => self.set_connectionattempts(value, config)?,
-            "connecttimeout" => self.set_connecttimeout(value, config)?,
-            "controlmaster" => {
-                self.control_master = Some(YesNoAskAutoAutoask::from_str_with_field(value, key)?)
-            }
-            "controlpath" => self.control_path = Some(value.to_string()),
-            "dynamicforward" => self.dynamic_forward = Some(value.to_string()),
-            "enablesshkeysign" => {
-                self.enable_ssh_keysign = Some(YesNo::from_str_with_field(value, key)?)
-            }
-            "escapechar" => self.escape_char = Some(value.to_string()),
-            "exitonforwardfailure" => {
-                self.exit_on_forward_failure = Some(YesNo::from_str_with_field(value, key)?)
-            }
-            "forwardagent" => self.forward_agent = Some(YesNo::from_str_with_field(value, key)?),
-            "forwardx11" => self.forward_x11 = Some(YesNo::from_str_with_field(value, key)?),
-            "forwardx11trusted" => {
-                self.forward_x11_trusted = Some(YesNo::from_str_with_field(value, key)?)
-            }
-            "gatewayports" => self.gateway_ports = Some(YesNo::from_str_with_field(value, key)?),
-            "globalknownhostsfile" => self.global_known_hosts_file = Some(value.to_string()),
-            "gssapiauthentication" => {
-                self.gssapi_authentication = Some(YesNo::from_str_with_field(value, key)?)
-            }
-            "gssapiclientidentity" => self.gssapi_client_identity = Some(value.to_string()),
-            "gssapidelegatecredentials" => {
-                self.gssapi_delegate_credentials = Some(YesNo::from_str_with_field(value, key)?)
-            }
-            "gssapikeyexchange" => {
-                self.gssapi_key_exchange = Some(YesNo::from_str_with_field(value, key)?)
-            }
-            "gssapirenewalforcesrekey" => {
-                self.gssapi_renewal_forces_rekey = Some(YesNo::from_str_with_field(value, key)?)
-            }
-            "gssapitrustdns" => {
-                self.gssapi_trust_dns = Some(YesNo::from_str_with_field(value, key)?)
-            }
-            "hashknownhosts" => {
-                self.hash_known_hosts = Some(YesNo::from_str_with_field(value, key)?)
-            }
-            "hostbasedauthentication" => {
-                self.hostbased_authentication = Some(YesNo::from_str_with_field(value, key)?)
-            }
-            "hostkeyalgorithms" => self.set_host_key_algorithms(value, config)?,
-            "hostkeyalias" => self.host_key_alias = Some(value.to_string()),
-            "hostname" => self.host_name = Some(value.to_string()),
-            "identitiesonly" => {
-                self.identities_only = Some(YesNo::from_str_with_field(value, key)?)
-            }
-            "identityfile" => self.identity_file = Some(value.to_string()),
-            "include" => self.include = Some(value.to_string()),
-            "kbdinteractiveauthentication" => {
-                self.kbd_interactive_authentication = Some(YesNo::from_str_with_field(value, key)?)
-            }
-            "kbdinteractivedevices" => self.set_kbd_interactive_devices(value, config)?,
-            "localcommand" => self.local_command = Some(value.to_string()),
-            "localforward" => self.local_forward = Some(value.to_string()),
-            "loglevel" => self.log_level = Some(LogLevels::from_str(value)?),
-            "macs" => self.set_macs(value, config)?,
-            "nohostauthenticationforlocalhost" => {
-                self.no_host_authentication_for_localhost =
-                    Some(YesNo::from_str_with_field(value, key)?)
-            }
-            "numberofpasswordprompts" => self.set_numberofpasswordprompts(value, config)?,
-            "passwordauthentication" => {
-                self.password_authentication = Some(YesNo::from_str_with_field(value, key)?)
-            }
-            "permitlocalcommand" => {
-                self.permit_local_command = Some(YesNo::from_str_with_field(value, key)?)
-            }
-            "port" => self.set_port(value, config)?,
-            "preferredauthentications" => self.preferred_authentications = Some(value.to_string()),
-            "protocol" => self.set_protocol(value)?,
-            "proxycommand" => self.proxy_command = Some(value.to_string()),
-            "pubkeyauthentication" => {
-                self.pubkey_authentication = Some(YesNo::from_str_with_field(value, key)?)
-            }
-            "rekeylimit" => self.set_rekey_limit(value)?,
-            "remoteforward" => self.remote_forward = Some(value.to_string()),
-            "rhostsrsaauthentication" => {
-                self.r_hosts_rsa_authentication = Some(YesNo::from_str_with_field(value, key)?)
-            }
-            "rsaauthentication" => {
-                self.rsa_authentication = Some(YesNo::from_str_with_field(value, key)?)
-            }
-            "sendenv" => self.send_env = Some(value.to_string()),
-            "serveralivecountmax" => self.set_serveralivecountmax(value, config)?,
-            "serveraliveinterval" => self.set_serveraliveinterval(value, config)?,
-            "smartcarddevice" => self.smartcard_device = Some(value.to_string()),
-            "stricthostkeychecking" => {
-                self.strict_host_key_checking = Some(YesNoAsk::from_str_with_field(value, key)?)
-            }
-            "tcpkeepalive" => self.tcp_keep_alive = Some(YesNo::from_str_with_field(value, key)?),
-            "tunnel" => self.tunnel = Some(TunnelOptions::from_str_with_field(value, key)?),
-            "tunneldevice" => self.tunnel_device = Some(value.to_string()),
-            "useprivilegedport" => {
-                self.use_privileged_port = Some(YesNo::from_str_with_field(value, key)?)
-            }
-            "user" => self.user = Some(value.to_string()),
-            "userknownhostsfile" => self.user_known_hosts_file = Some(value.to_string()),
-            "verifyhostkeydns" => {
-                self.verify_host_key_dns = Some(YesNoAsk::from_str_with_field(value, key)?)
-            }
-            "visualhostkey" => self.visual_host_key = Some(YesNo::from_str_with_field(value, key)?),
-            "xauthlocation" => self.x_auth_location = Some(value.to_string()),
-            // Unspecified or invalid ssh config file parameter was found. The key does not match
-            // any known parameter or field. We'll store it here in case the user knows what to do
-            // with it.
-            _ => {
-                let mut unknowns: HashMap<String, String> = HashMap::new();
-                if self.unknown.is_some() {
-                    unknowns = self.unknown.clone().unwrap();
+
+            match key {
+                "host" => self.host = value.to_string(),
+                "addressfamily" => self.address_family = Some(AddressFamily::from_str(value)?),
+                "batchmode" => self.batch_mode = Some(YesNo::from_str_with_field(value, key)?),
+                "bindaddress" => self.bind_address = Some(value.to_string()),
+                "challengeresponseauthentication" => {
+                    self.challenge_response_authentication =
+                        Some(YesNo::from_str_with_field(value, key)?)
                 }
-                unknowns.insert(key.to_string(), value.to_string());
-                self.unknown = Some(unknowns);
-            }
+                "checkhostip" => self.check_host_ip = Some(YesNo::from_str_with_field(value, key)?),
+                "cipher" => self.cipher = Some(value.to_string()),
+                "ciphers" => self.set_ciphers(value, policy)?,
+                "clearallforwardings" => {
+                    self.clear_all_forwardings = Some(YesNo::from_str_with_field(value, key)?)
+                }
+                "compression" => self.compression = Some(YesNo::from_str_with_field(value, key)?),
+                "compressionlevel" => self.set_compressionlevel(value, policy)?,
+                "connectionattempts" => self.set_connectionattempts(value, policy)?,
+                "connecttimeout" => self.set_connecttimeout(value, policy)?,
+                "controlmaster" => {
+                    self.control_master =
+                        Some(YesNoAskAutoAutoask::from_str_with_field(value, key)?)
+                }
+                "controlpath" => self.control_path = Some(value.to_string()),
+                "dynamicforward" => self.dynamic_forward = Some(value.to_string()),
+                "enablesshkeysign" => {
+                    self.enable_ssh_keysign = Some(YesNo::from_str_with_field(value, key)?)
+                }
+                "escapechar" => self.escape_char = Some(value.to_string()),
+                "exitonforwardfailure" => {
+                    self.exit_on_forward_failure = Some(YesNo::from_str_with_field(value, key)?)
+                }
+                "forwardagent" => {
+                    self.forward_agent = Some(YesNo::from_str_with_field(value, key)?)
+                }
+                "forwardx11" => self.forward_x11 = Some(YesNo::from_str_with_field(value, key)?),
+                "forwardx11trusted" => {
+                    self.forward_x11_trusted = Some(YesNo::from_str_with_field(value, key)?)
+                }
+                "gatewayports" => {
+                    self.gateway_ports = Some(YesNo::from_str_with_field(value, key)?)
+                }
+                "globalknownhostsfile" => self.global_known_hosts_file = Some(value.to_string()),
+                "gssapiauthentication" => {
+                    self.gssapi_authentication = Some(YesNo::from_str_with_field(value, key)?)
+                }
+                "gssapiclientidentity" => self.gssapi_client_identity = Some(value.to_string()),
+                "gssapidelegatecredentials" => {
+                    self.gssapi_delegate_credentials = Some(YesNo::from_str_with_field(value, key)?)
+                }
+                "gssapikeyexchange" => {
+                    self.gssapi_key_exchange = Some(YesNo::from_str_with_field(value, key)?)
+                }
+                "gssapirenewalforcesrekey" => {
+                    self.gssapi_renewal_forces_rekey = Some(YesNo::from_str_with_field(value, key)?)
+                }
+                "gssapitrustdns" => {
+                    self.gssapi_trust_dns = Some(YesNo::from_str_with_field(value, key)?)
+                }
+                "hashknownhosts" => {
+                    self.hash_known_hosts = Some(YesNo::from_str_with_field(value, key)?)
+                }
+                "hostbasedauthentication" => {
+                    self.hostbased_authentication = Some(YesNo::from_str_with_field(value, key)?)
+                }
+                "hostkeyalgorithms" => self.set_host_key_algorithms(value, policy)?,
+                "hostkeyalias" => self.host_key_alias = Some(value.to_string()),
+                "hostname" => self.host_name = Some(value.to_string()),
+                "identitiesonly" => {
+                    self.identities_only = Some(YesNo::from_str_with_field(value, key)?)
+                }
+                "identityfile" => self.identity_file = Some(value.to_string()),
+                "include" => self.include = Some(value.to_string()),
+                "kbdinteractiveauthentication" => {
+                    self.kbd_interactive_authentication =
+                        Some(YesNo::from_str_with_field(value, key)?)
+                }
+                "kbdinteractivedevices" => self.set_kbd_interactive_devices(value, policy)?,
+                "localcommand" => self.local_command = Some(value.to_string()),
+                "localforward" => self.local_forward = Some(value.to_string()),
+                "loglevel" => self.log_level = Some(LogLevels::from_str(value)?),
+                "macs" => self.set_macs(value, policy)?,
+                "nohostauthenticationforlocalhost" => {
+                    self.no_host_authentication_for_localhost =
+                        Some(YesNo::from_str_with_field(value, key)?)
+                }
+                "numberofpasswordprompts" => self.set_numberofpasswordprompts(value, policy)?,
+                "passwordauthentication" => {
+                    self.password_authentication = Some(YesNo::from_str_with_field(value, key)?)
+                }
+                "permitlocalcommand" => {
+                    self.permit_local_command = Some(YesNo::from_str_with_field(value, key)?)
+                }
+                "port" => self.set_port(value, policy)?,
+                "preferredauthentications" => {
+                    self.preferred_authentications = Some(value.to_string())
+                }
+                "protocol" => self.set_protocol(value)?,
+                "proxycommand" => self.proxy_command = Some(value.to_string()),
+                "pubkeyauthentication" => {
+                    self.pubkey_authentication = Some(YesNo::from_str_with_field(value, key)?)
+                }
+                "rekeylimit" => self.set_rekey_limit(value)?,
+                "remoteforward" => self.remote_forward = Some(value.to_string()),
+                "rhostsrsaauthentication" => {
+                    self.r_hosts_rsa_authentication = Some(YesNo::from_str_with_field(value, key)?)
+                }
+                "rsaauthentication" => {
+                    self.rsa_authentication = Some(YesNo::from_str_with_field(value, key)?)
+                }
+                "sendenv" => self.send_env = Some(value.to_string()),
+                "serveralivecountmax" => self.set_serveralivecountmax(value, policy)?,
+                "serveraliveinterval" => self.set_serveraliveinterval(value, policy)?,
+                "smartcarddevice" => self.smartcard_device = Some(value.to_string()),
+                "stricthostkeychecking" => {
+                    self.strict_host_key_checking = Some(YesNoAsk::from_str_with_field(value, key)?)
+                }
+                "tcpkeepalive" => {
+                    self.tcp_keep_alive = Some(YesNo::from_str_with_field(value, key)?)
+                }
+                "tunnel" => self.tunnel = Some(TunnelOptions::from_str_with_field(value, key)?),
+                "tunneldevice" => self.tunnel_device = Some(value.to_string()),
+                "useprivilegedport" => {
+                    self.use_privileged_port = Some(YesNo::from_str_with_field(value, key)?)
+                }
+                "user" => self.user = Some(value.to_string()),
+                "userknownhostsfile" => self.user_known_hosts_file = Some(value.to_string()),
+                "verifyhostkeydns" => {
+                    self.verify_host_key_dns = Some(YesNoAsk::from_str_with_field(value, key)?)
+                }
+                "visualhostkey" => {
+                    self.visual_host_key = Some(YesNo::from_str_with_field(value, key)?)
+                }
+                "xauthlocation" => self.x_auth_location = Some(value.to_string()),
+                // Unspecified or invalid ssh config file parameter was found. The key does not match
+                // any known parameter or field. We'll store it here in case the user knows what to do
+                // with it.
+                _ => {
+                    let mut unknowns: HashMap<String, String> = HashMap::new();
+                    if self.unknown.is_some() {
+                        unknowns = self.unknown.clone().unwrap();
+                    }
+                    unknowns.insert(key.to_string(), value.to_string());
+                    self.unknown = Some(unknowns);
+                }
+            };
+        } else {
+            // Unknown directive handling - add to unknown map
+            let mut unknown_map = self.unknown.clone().unwrap_or_else(HashMap::new);
+            unknown_map.insert(key.to_string(), value.to_string());
+            self.unknown = Some(unknown_map);
         }
         Ok(())
     }
@@ -1523,18 +1566,18 @@ impl SshConfigHost {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::ForesConfig;
+    use crate::configuration::HostPolicy;
     use crate::ConfigError;
 
     #[test]
     fn test_set_ciphers() {
         let mut host = SshConfigHost::new();
-        let config = ForesConfig::default();
+        let policy = HostPolicy::default();
 
-        host.set_ciphers("aes128-ctr,aes256-ctr", &config).unwrap();
+        host.set_ciphers("aes128-ctr,aes256-ctr", &policy).unwrap();
         assert_eq!(host.ciphers, Some("aes128-ctr,aes256-ctr".to_string()));
 
-        let result = host.set_ciphers("invalid-cipher", &config);
+        let result = host.set_ciphers("invalid-cipher", &policy);
         assert!(result.is_err());
         match result.unwrap_err() {
             ConfigError::InvalidValue { field, value, .. } => {
@@ -1548,15 +1591,15 @@ mod tests {
     #[test]
     fn test_set_compressionlevel() {
         let mut host = SshConfigHost::new();
-        let config = ForesConfig::default();
+        let policy = HostPolicy::default();
 
-        host.set_compressionlevel("1", &config).unwrap();
+        host.set_compressionlevel("1", &policy).unwrap();
         assert_eq!(host.compression_level, Some(1));
 
-        host.set_compressionlevel("9", &config).unwrap();
+        host.set_compressionlevel("9", &policy).unwrap();
         assert_eq!(host.compression_level, Some(9));
 
-        let result = host.set_compressionlevel("0", &config);
+        let result = host.set_compressionlevel("0", &policy);
         assert!(result.is_err());
         match result.unwrap_err() {
             ConfigError::InvalidValue { field, value, .. } => {
@@ -1566,7 +1609,7 @@ mod tests {
             _ => panic!("Expected ConfigError::InvalidValue"),
         }
 
-        let result = host.set_compressionlevel("10", &config);
+        let result = host.set_compressionlevel("10", &policy);
         assert!(result.is_err());
         match result.unwrap_err() {
             ConfigError::InvalidValue { field, value, .. } => {
@@ -1580,26 +1623,123 @@ mod tests {
     #[test]
     fn test_set_connectionattempts() {
         let mut host = SshConfigHost::new();
-        let config = ForesConfig::default();
-        let mut max_config = ForesConfig::default();
-        max_config.max_connection_attempts = 10;
+        let policy = HostPolicy::default();
+        let mut alt_policy = HostPolicy::default();
+        alt_policy.max_connection_attempts = 10;
 
-        host.set_connectionattempts("3", &config).unwrap();
+        host.set_connectionattempts("3", &policy).unwrap();
         assert_eq!(host.connection_attempts, Some(3));
 
         // Test with a custom max connection attempts
-        let mut result = host.set_connectionattempts("12", &max_config);
+        let mut result = host.set_connectionattempts("12", &alt_policy);
         assert!(result.is_err());
         if let Err(ConfigError::InvalidValue { field, value, .. }) = result {
             assert_eq!(field, "connection_attempts");
             assert_eq!(value, "12");
         }
 
-        result = host.set_connectionattempts("invalid-attempts", &config);
+        result = host.set_connectionattempts("invalid-attempts", &policy);
         assert!(result.is_err());
         if let Err(ConfigError::InvalidValue { field, value, .. }) = result {
             assert_eq!(field, "connection_attempts");
             assert_eq!(value, "invalid-attempts");
         }
     }
+
+    #[test]
+    fn test_set_connecttimeout() {
+        let mut host = SshConfigHost::new();
+        let policy = HostPolicy::default();
+        // Set a custom max connect timeout of 300 seconds
+        let mut alt_policy = HostPolicy::default();
+        alt_policy.max_connect_timeout = 300;
+
+        host.set_connecttimeout("120", &policy).unwrap();
+        assert_eq!(host.connect_timeout, Some(120));
+
+        let result = host.set_connecttimeout("310", &alt_policy);
+        if let Err(ConfigError::InvalidValue { field, value, .. }) = result {
+            assert_eq!(field, "connect_timeout");
+            assert_eq!(value, "310");
+        }
+    }
+
+    #[test]
+    fn test_set_host_key_algorithms() {
+        let mut host = SshConfigHost::new();
+        let policy = HostPolicy::default();
+        // Set a custom permitted host key algorithms
+        let mut hka_config = HostPolicy::default();
+        hka_config.permitted_host_key_algorithms = vec!["rsa", "ecdsa", "voodoo"];
+
+        host.set_host_key_algorithms("ecdsa-sha2-nistp256,ecdsa-sha2-nistp384", &policy).unwrap();
+        assert_eq!(
+            host.host_key_algorithms,
+            Some("ecdsa-sha2-nistp256,ecdsa-sha2-nistp384".to_string())
+        );
+
+        let result =
+            host.set_host_key_algorithms("ecdsa-sha2-nistp256,ecdsa-sha2-nistp384", &hka_config);
+        if let Err(ConfigError::InvalidValue { field, value, .. }) = result {
+            assert_eq!(field, "hostkeyalgorithms");
+            assert_eq!(value, "ecdsa-sha2-nistp256,ecdsa-sha2-nistp384");
+        }
+    }
+
+    #[test]
+    fn test_set_kbd_interactive_devices() {
+        let mut _host = SshConfigHost::new();
+        let _policy = HostPolicy::default();
+    }
+
+    #[test]
+    fn test_set_macs() {
+        let mut _host = SshConfigHost::new();
+        let _policy = HostPolicy::default();
+    }
+
+    #[test]
+    fn test_set_numberofpasswordprompts() {
+        let mut _host = SshConfigHost::new();
+        let _policy = HostPolicy::default();
+    }
+
+    #[test]
+    fn test_set_port() {
+        let mut _host = SshConfigHost::new();
+        let _policy = HostPolicy::default();
+    }
+
+    #[test]
+    fn test_set_protocol() {
+        let mut _host = SshConfigHost::new();
+        let _policy = HostPolicy::default();
+    }
+
+    #[test]
+    fn test_set_rekey_limit() {
+        let mut _host = SshConfigHost::new();
+        let _policy = HostPolicy::default();
+    }
+
+    #[test]
+    fn test_set_serveralivecountmax() {
+        let mut _host = SshConfigHost::new();
+        let _policy = HostPolicy::default();
+    }
+
+    #[test]
+    fn test_set_serveraliveinterval() {
+        let mut _host = SshConfigHost::new();
+        let _policy = HostPolicy::default();
+    }
+
+    #[test]
+    fn test_parse_and_validate_u8_range() {}
+
+    #[test]
+    fn test_parse_and_validate_u16_range() {}
+
+    #[test]
+    fn test_parse_and_validate_u32_range() {}
 }

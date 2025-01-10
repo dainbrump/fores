@@ -11,6 +11,9 @@ pub enum ConfigError {
     #[error("Invalid value for {field}: {value}")]
     InvalidValue { field: &'static str, value: String },
 
+    #[error("Directive set for {field} but is empty or contains no valid parameters. : {value}")]
+    EmptyDirective { field: &'static str, value: String },
+
     #[error("Parse error: {0}")]
     Parse(String),
 
@@ -25,4 +28,10 @@ pub enum ConfigError {
 
     #[error("Value for {field} out of range ({min}-{max}): {value}")]
     OutOfRangeU32 { field: &'static str, value: String, min: u32, max: u32 },
+
+    #[error("Directive {directive} is not supported in standard {standard}")]
+    UnsupportedDirective { directive: String, standard: String },
+
+    #[error("Directive {directive} is not supported in protocol {protocol}")]
+    InvalidProtocol { directive: String, protocol: String },
 }
