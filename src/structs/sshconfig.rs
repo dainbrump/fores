@@ -909,7 +909,7 @@ impl SshConfigHost {
         }
 
         for cipher in &values {
-            if !policy.permitted_ciphers.contains(cipher) {
+            if !policy.permitted_ciphers().contains(cipher) {
                 return Err(ConfigError::InvalidValue {
                     field: "ciphers",
                     value: cipher.to_string(),
@@ -942,8 +942,8 @@ impl SshConfigHost {
         self.compression_level = Some(self.parse_and_validate_u8_range(
             value,
             "compression_level",
-            policy.min_compression_level,
-            policy.max_compression_level,
+            policy.min_compression_level(),
+            policy.max_compression_level(),
         )?);
         Ok(())
     }
@@ -970,7 +970,7 @@ impl SshConfigHost {
             attempts,
             "connection_attempts",
             1,
-            policy.max_connection_attempts,
+            policy.max_connection_attempts(),
         )?;
         self.connection_attempts = Some(parsed_value);
         Ok(())
@@ -998,7 +998,7 @@ impl SshConfigHost {
             timeout,
             "connect_timeout",
             0,
-            policy.max_connect_timeout,
+            policy.max_connect_timeout(),
         )?);
         Ok(())
     }
@@ -1036,7 +1036,7 @@ impl SshConfigHost {
 
         let mut invalid_values: Vec<&str> = Vec::new();
         for algorithm in &values {
-            if !policy.permitted_host_key_algorithms.contains(algorithm) {
+            if !policy.permitted_host_key_algorithms().contains(algorithm) {
                 invalid_values.push(algorithm);
             }
         }
@@ -1085,7 +1085,7 @@ impl SshConfigHost {
         }
 
         for device in &values {
-            if !policy.permitted_kbd_interactive_devices.contains(device) {
+            if !policy.permitted_kbd_interactive_devices().contains(device) {
                 return Err(ConfigError::InvalidValue {
                     field: "kbd_interactive_devices",
                     value: device.to_string(),
@@ -1120,7 +1120,7 @@ impl SshConfigHost {
         }
 
         for mac in &values {
-            if !policy.permitted_macs.contains(mac) {
+            if !policy.permitted_macs().contains(mac) {
                 return Err(ConfigError::InvalidValue { field: "macs", value: mac.to_string() });
             }
         }
@@ -1151,7 +1151,7 @@ impl SshConfigHost {
             prompts,
             "number_of_password_prompts",
             0,
-            policy.max_password_prompts,
+            policy.max_password_prompts(),
         )?);
         Ok(())
     }
@@ -1171,8 +1171,8 @@ impl SshConfigHost {
         self.port = Some(self.parse_and_validate_u16_range(
             port,
             "port",
-            policy.min_port,
-            policy.max_port,
+            policy.min_port(),
+            policy.max_port(),
         )?);
         Ok(())
     }
@@ -1278,7 +1278,7 @@ impl SshConfigHost {
             count,
             "server_alive_count_max",
             0,
-            policy.max_server_alive_count_max,
+            policy.max_server_alive_count_max(),
         )?);
         Ok(())
     }
@@ -1307,7 +1307,7 @@ impl SshConfigHost {
             interval,
             "server_alive_interval",
             0,
-            policy.max_server_alive_interval,
+            policy.max_server_alive_interval(),
         )?);
         Ok(())
     }
@@ -1322,14 +1322,14 @@ impl SshConfigHost {
 
         if let Some(directive_support) = DIRECTIVE_TO_PROTOCOL_MAP.get(&directive) {
             // Check if the directive is supported by any of the configured standards
-            if !policy.supported_standards.contains(&directive_support.standard) {
+            if !policy.supported_standards().contains(&directive_support.standard) {
                 return Err(ConfigError::UnsupportedDirective {
                     directive,
                     standard: format!("{:?}", directive_support.standard),
                 });
             }
 
-            if policy.enforce_standards_compliance
+            if policy.enforce_standards_compliance()
                 && directive_support.protocol == ProtocolVersion::OpenSSHV1
             {
                 return Err(ConfigError::InvalidProtocol { directive, protocol: "v1".to_string() });
@@ -1566,13 +1566,13 @@ impl SshConfigHost {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::configuration::HostPolicy;
+    use crate::configuration::HostPolicyBuilder;
     use crate::ConfigError;
 
     #[test]
     fn test_set_ciphers() {
         let mut host = SshConfigHost::new();
-        let policy = HostPolicy::default();
+        let policy = HostPolicyBuilder::new().build().unwrap();
 
         host.set_ciphers("aes128-ctr,aes256-ctr", &policy).unwrap();
         assert_eq!(host.ciphers, Some("aes128-ctr,aes256-ctr".to_string()));
@@ -1591,7 +1591,7 @@ mod tests {
     #[test]
     fn test_set_compressionlevel() {
         let mut host = SshConfigHost::new();
-        let policy = HostPolicy::default();
+        let policy = HostPolicyBuilder::new().build().unwrap();
 
         host.set_compressionlevel("1", &policy).unwrap();
         assert_eq!(host.compression_level, Some(1));
@@ -1602,40 +1602,40 @@ mod tests {
         let result = host.set_compressionlevel("0", &policy);
         assert!(result.is_err());
         match result.unwrap_err() {
-            ConfigError::InvalidValue { field, value, .. } => {
+            ConfigError::OutOfRangeU8 { field, value, .. } => {
                 assert_eq!(field, "compression_level");
                 assert_eq!(value, "0");
             }
-            _ => panic!("Expected ConfigError::InvalidValue"),
+            _ => panic!("Expected ConfigError::OutOfRangeU8"),
         }
 
         let result = host.set_compressionlevel("10", &policy);
         assert!(result.is_err());
         match result.unwrap_err() {
-            ConfigError::InvalidValue { field, value, .. } => {
+            ConfigError::OutOfRangeU8 { field, value, .. } => {
                 assert_eq!(field, "compression_level");
                 assert_eq!(value, "10");
             }
-            _ => panic!("Expected ConfigError::InvalidValue"),
+            _ => panic!("Expected ConfigError::OutOfRangeU8"),
         }
     }
 
     #[test]
     fn test_set_connectionattempts() {
         let mut host = SshConfigHost::new();
-        let policy = HostPolicy::default();
-        let mut alt_policy = HostPolicy::default();
-        alt_policy.max_connection_attempts = 10;
+        let policy = HostPolicyBuilder::new().build().unwrap();
+        // Setting a sane maximum that is realisticly testable instead of 4294967295
+        let sane_policy = HostPolicyBuilder::new().max_connection_attempts(30).build().unwrap();
 
         host.set_connectionattempts("3", &policy).unwrap();
         assert_eq!(host.connection_attempts, Some(3));
 
         // Test with a custom max connection attempts
-        let mut result = host.set_connectionattempts("12", &alt_policy);
+        let mut result = host.set_connectionattempts("40", &sane_policy);
         assert!(result.is_err());
         if let Err(ConfigError::InvalidValue { field, value, .. }) = result {
             assert_eq!(field, "connection_attempts");
-            assert_eq!(value, "12");
+            assert_eq!(value, "40");
         }
 
         result = host.set_connectionattempts("invalid-attempts", &policy);
@@ -1649,15 +1649,14 @@ mod tests {
     #[test]
     fn test_set_connecttimeout() {
         let mut host = SshConfigHost::new();
-        let policy = HostPolicy::default();
-        // Set a custom max connect timeout of 300 seconds
-        let mut alt_policy = HostPolicy::default();
-        alt_policy.max_connect_timeout = 300;
+        let policy = HostPolicyBuilder::new().build().unwrap();
+        // Set a sane max connect timeout of 300 seconds instead of 136-ish years
+        let sane_policy = HostPolicyBuilder::new().max_connect_timeout(300).build().unwrap();
 
         host.set_connecttimeout("120", &policy).unwrap();
         assert_eq!(host.connect_timeout, Some(120));
 
-        let result = host.set_connecttimeout("310", &alt_policy);
+        let result = host.set_connecttimeout("310", &sane_policy);
         if let Err(ConfigError::InvalidValue { field, value, .. }) = result {
             assert_eq!(field, "connect_timeout");
             assert_eq!(value, "310");
@@ -1667,79 +1666,257 @@ mod tests {
     #[test]
     fn test_set_host_key_algorithms() {
         let mut host = SshConfigHost::new();
-        let policy = HostPolicy::default();
-        // Set a custom permitted host key algorithms
-        let mut hka_config = HostPolicy::default();
-        hka_config.permitted_host_key_algorithms = vec!["rsa", "ecdsa", "voodoo"];
+        let default_policy = HostPolicyBuilder::new().build().unwrap();
 
-        host.set_host_key_algorithms("ecdsa-sha2-nistp256,ecdsa-sha2-nistp384", &policy).unwrap();
+        host.set_host_key_algorithms("ecdsa-sha2-nistp256,ecdsa-sha2-nistp384", &default_policy)
+            .unwrap();
+
         assert_eq!(
             host.host_key_algorithms,
             Some("ecdsa-sha2-nistp256,ecdsa-sha2-nistp384".to_string())
         );
 
-        let result =
-            host.set_host_key_algorithms("ecdsa-sha2-nistp256,ecdsa-sha2-nistp384", &hka_config);
-        if let Err(ConfigError::InvalidValue { field, value, .. }) = result {
-            assert_eq!(field, "hostkeyalgorithms");
-            assert_eq!(value, "ecdsa-sha2-nistp256,ecdsa-sha2-nistp384");
+        let result = host.set_host_key_algorithms("invalid_voodoo", &default_policy);
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            ConfigError::InvalidValue { field, value, .. } => {
+                assert_eq!(field, "hostkeyalgorithms");
+                assert_eq!(value, "invalid_voodoo");
+            }
+            _ => panic!("Expected ConfigError::ParseInteger"),
         }
     }
 
     #[test]
     fn test_set_kbd_interactive_devices() {
-        let mut _host = SshConfigHost::new();
-        let _policy = HostPolicy::default();
+        let mut host = SshConfigHost::new();
+        let policy = HostPolicyBuilder::new().build().unwrap();
+
+        host.set_kbd_interactive_devices("bsdauth", &policy).unwrap();
+        assert_eq!(host.kbd_interactive_devices, Some("bsdauth".to_string()));
+
+        let result = host.set_kbd_interactive_devices("invalid_voodoo", &policy);
+        if let Err(ConfigError::InvalidValue { field, value, .. }) = result {
+            assert_eq!(field, "kbd_interactive_devices");
+            assert_eq!(value, "invalid_voodoo");
+        }
     }
 
     #[test]
     fn test_set_macs() {
-        let mut _host = SshConfigHost::new();
-        let _policy = HostPolicy::default();
+        let mut host = SshConfigHost::new();
+        let policy = HostPolicyBuilder::new().build().unwrap();
+
+        host.set_macs("hmac-md5,hmac-sha1", &policy).unwrap();
+        assert_eq!(host.macs, Some("hmac-md5,hmac-sha1".to_string()));
+
+        let result = host.set_macs("invalid_voodoo", &policy);
+        if let Err(ConfigError::InvalidValue { field, value, .. }) = result {
+            assert_eq!(field, "macs");
+            assert_eq!(value, "invalid_voodoo");
+        }
     }
 
     #[test]
     fn test_set_numberofpasswordprompts() {
-        let mut _host = SshConfigHost::new();
-        let _policy = HostPolicy::default();
+        let mut host = SshConfigHost::new();
+        let policy = HostPolicyBuilder::new().build().unwrap();
+        // Setting a sane maximum that is realisticly testable instead of 4294967295
+        let sane_max = 30;
+        let sane_policy = HostPolicyBuilder::new().max_password_prompts(sane_max).build().unwrap();
+
+        host.set_numberofpasswordprompts("5", &policy).unwrap();
+        assert_eq!(host.number_of_password_prompts, Some(5));
+
+        let result = host.set_numberofpasswordprompts("50", &sane_policy);
+        if let Err(ConfigError::OutOfRangeU32 { field, value, min, max }) = result {
+            assert_eq!(field, "number_of_password_prompts");
+            assert_eq!(value, "50");
+            assert_eq!(min, 0);
+            assert_eq!(max, sane_max);
+        }
     }
 
     #[test]
     fn test_set_port() {
-        let mut _host = SshConfigHost::new();
-        let _policy = HostPolicy::default();
+        let mut host = SshConfigHost::new();
+        let policy = HostPolicyBuilder::new().build().unwrap();
+        // Setting a testable max port that is within the u16 range
+        let testable_max = 21010;
+        let testable_policy = HostPolicyBuilder::new().max_port(testable_max).build().unwrap();
+
+        host.set_port("1024", &policy).unwrap();
+        assert_eq!(host.port, Some(1024));
+
+        let result = host.set_port("21011", &testable_policy);
+        if let Err(ConfigError::OutOfRangeU16 { field, value, min, max }) = result {
+            assert_eq!(field, "port");
+            assert_eq!(value, "21011");
+            assert_eq!(min, 0);
+            assert_eq!(max, testable_max);
+        }
     }
 
     #[test]
     fn test_set_protocol() {
-        let mut _host = SshConfigHost::new();
-        let _policy = HostPolicy::default();
+        let mut host = SshConfigHost::new();
+        host.set_protocol("2,1").unwrap();
+        assert_eq!(host.protocol, Some("2,1".to_string()));
+
+        let result = host.set_protocol("1,2,3");
+        assert!(result.is_err());
+        if let Err(ConfigError::InvalidValue { field, value, .. }) = result {
+            assert_eq!(field, "protocol");
+            assert_eq!(value, "3");
+        }
     }
 
     #[test]
     fn test_set_rekey_limit() {
-        let mut _host = SshConfigHost::new();
-        let _policy = HostPolicy::default();
+        let mut host = SshConfigHost::new();
+        host.set_rekey_limit("1G").unwrap();
+        assert_eq!(host.rekey_limit, Some("1G".to_string()));
+
+        let result = host.set_rekey_limit("1T");
+        assert!(result.is_err());
+        if let Err(ConfigError::InvalidValue { field, value, .. }) = result {
+            assert_eq!(field, "rekey_limit");
+            assert_eq!(value, "1T");
+        }
     }
 
     #[test]
     fn test_set_serveralivecountmax() {
-        let mut _host = SshConfigHost::new();
-        let _policy = HostPolicy::default();
+        let mut host = SshConfigHost::new();
+        let policy = HostPolicyBuilder::new().build().unwrap();
+        // Setting a sane maximum that is realisticly testable instead of 4294967295
+        let sane_max = 60;
+        let sane_policy =
+            HostPolicyBuilder::new().max_server_alive_count_max(sane_max).build().unwrap();
+
+        host.set_serveralivecountmax("6", &policy).unwrap();
+        assert_eq!(host.server_alive_count_max, Some(6));
+
+        let result = host.set_serveralivecountmax("150", &sane_policy);
+        if let Err(ConfigError::OutOfRangeU32 { field, value, min, max }) = result {
+            assert_eq!(field, "server_alive_count_max");
+            assert_eq!(value, "150");
+            assert_eq!(min, 0);
+            assert_eq!(max, sane_max);
+        }
     }
 
     #[test]
     fn test_set_serveraliveinterval() {
-        let mut _host = SshConfigHost::new();
-        let _policy = HostPolicy::default();
+        let mut host = SshConfigHost::new();
+        let policy = HostPolicyBuilder::new().build().unwrap();
+        // Setting a sane maximum that is realisticly testable instead of 4294967295
+        let sane_max = 60;
+        let sane_policy =
+            HostPolicyBuilder::new().max_server_alive_interval(sane_max).build().unwrap();
+
+        host.set_serveraliveinterval("30", &policy).unwrap();
+        assert_eq!(host.server_alive_interval, Some(30));
+
+        let result = host.set_serveraliveinterval("75", &sane_policy);
+        if let Err(ConfigError::OutOfRangeU32 { field, value, min, max }) = result {
+            assert_eq!(field, "server_alive_interval");
+            assert_eq!(value, "75");
+            assert_eq!(min, 0);
+            assert_eq!(max, sane_max);
+        }
     }
 
     #[test]
-    fn test_parse_and_validate_u8_range() {}
+    fn test_parse_and_validate_u8_range() {
+        let mut host = SshConfigHost::new();
+        let range_min: u8 = 0;
+        let range_max: u8 = 128;
+
+        assert!(host.parse_and_validate_u8_range("15", "test", range_min, range_max).is_ok());
+        // Invalid integer value
+        let mut result = host.parse_and_validate_u8_range("bob", "test", range_min, range_max);
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            ConfigError::ParseInteger { field, value } => {
+                assert_eq!(field, "test");
+                assert_eq!(value, "bob");
+            }
+            _ => panic!("Expected ConfigError::ParseInteger"),
+        }
+        // Out of range
+        result = host.parse_and_validate_u8_range("200", "test", range_min, range_max);
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            ConfigError::OutOfRangeU8 { field, value, min, max } => {
+                assert_eq!(field, "test");
+                assert_eq!(value, "200");
+                assert_eq!(min, range_min);
+                assert_eq!(max, range_max);
+            }
+            _ => panic!("Expected ConfigError::OutOfRangeU8"),
+        }
+    }
 
     #[test]
-    fn test_parse_and_validate_u16_range() {}
+    fn test_parse_and_validate_u16_range() {
+        let mut host = SshConfigHost::new();
+        let range_min: u16 = 0;
+        let range_max: u16 = 1024;
+
+        assert!(host.parse_and_validate_u16_range("512", "test", range_min, range_max).is_ok());
+        // Invalid integer value
+        let mut result = host.parse_and_validate_u16_range("bob", "test", range_min, range_max);
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            ConfigError::ParseInteger { field, value } => {
+                assert_eq!(field, "test");
+                assert_eq!(value, "bob");
+            }
+            _ => panic!("Expected ConfigError::ParseInteger"),
+        }
+        // Out of range
+        result = host.parse_and_validate_u16_range("2048", "test", range_min, range_max);
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            ConfigError::OutOfRangeU16 { field, value, min, max } => {
+                assert_eq!(field, "test");
+                assert_eq!(value, "2048");
+                assert_eq!(min, range_min);
+                assert_eq!(max, range_max);
+            }
+            _ => panic!("Expected ConfigError::OutOfRangeU16"),
+        }
+    }
 
     #[test]
-    fn test_parse_and_validate_u32_range() {}
+    fn test_parse_and_validate_u32_range() {
+        let mut host = SshConfigHost::new();
+        let range_min: u32 = 0;
+        let range_max: u32 = 1000000;
+
+        assert!(host.parse_and_validate_u32_range("70000", "test", range_min, range_max).is_ok());
+        // Invalid integer value
+        let mut result = host.parse_and_validate_u32_range("bob", "test", range_min, range_max);
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            ConfigError::ParseInteger { field, value } => {
+                assert_eq!(field, "test");
+                assert_eq!(value, "bob");
+            }
+            _ => panic!("Expected ConfigError::ParseInteger"),
+        }
+        // Out of range
+        result = host.parse_and_validate_u32_range("2000000", "test", range_min, range_max);
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            ConfigError::OutOfRangeU32 { field, value, min, max } => {
+                assert_eq!(field, "test");
+                assert_eq!(value, "2000000");
+                assert_eq!(min, range_min);
+                assert_eq!(max, range_max);
+            }
+            _ => panic!("Expected ConfigError::OutOfRangeU32"),
+        }
+    }
 }

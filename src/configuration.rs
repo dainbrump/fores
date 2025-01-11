@@ -6,37 +6,37 @@ use crate::{VALID_CIPHERS, VALID_HOST_KEY_ALGORITHMS, VALID_KBD_INTERACTIVE_DEVI
 #[derive(Debug, Clone)]
 pub struct HostPolicy {
     /// The maximum allowed value for the `ConnectionAttempts` option.
-    pub max_connection_attempts: u32,
+    max_connection_attempts: u32,
     /// The minimum allowed value for the `CompressionLevel` option.
-    pub min_compression_level: u8,
+    min_compression_level: u8,
     /// The maximum allowed value for the `CompressionLevel` option.
-    pub max_compression_level: u8,
+    max_compression_level: u8,
     /// The maximum allowed value for the `ConnectTimeout` option.
-    pub max_connect_timeout: u32,
+    max_connect_timeout: u32,
     /// The ciphers that the parser will consider valid.
-    pub permitted_ciphers: Vec<&'static str>,
+    permitted_ciphers: Vec<&'static str>,
     /// The host key algorithms that the parser will consider valid.
-    pub permitted_host_key_algorithms: Vec<&'static str>,
+    permitted_host_key_algorithms: Vec<&'static str>,
     /// The keyboard interactive devices that the parser will consider valid.
-    pub permitted_kbd_interactive_devices: Vec<&'static str>,
+    permitted_kbd_interactive_devices: Vec<&'static str>,
     /// The MACs that the parser will consider valid.
-    pub permitted_macs: Vec<&'static str>,
+    permitted_macs: Vec<&'static str>,
     /// The maximum allowed value for the `NumberOfPasswordPrompts` option.
-    pub max_password_prompts: u32,
+    max_password_prompts: u32,
     /// The minimum allowed value for the `Port` option.
-    pub min_port: u16,
+    min_port: u16,
     /// The maximum allowed value for the `Port` option.
-    pub max_port: u16,
+    max_port: u16,
     /// The maximum allowed value for the `ServerAliveCountMax` option.
-    pub max_server_alive_count_max: u32,
+    max_server_alive_count_max: u32,
     /// The maximum allowed value for the `ServerAliveInterval` option.
-    pub max_server_alive_interval: u32,
+    max_server_alive_interval: u32,
     /// Whether to enforce standards compliance.
-    pub enforce_standards_compliance: bool,
+    enforce_standards_compliance: bool,
     /// The SSH protocol versions to enforce compliance with.
-    pub compliance_mode: Option<Vec<ProtocolVersion>>,
+    compliance_mode: Option<Vec<ProtocolVersion>>,
     /// The supported SSH standards.
-    pub supported_standards: Vec<SshStandard>,
+    supported_standards: Vec<SshStandard>,
 }
 
 impl Default for HostPolicy {
@@ -59,6 +59,92 @@ impl Default for HostPolicy {
             compliance_mode: None,
             supported_standards: vec![SshStandard::OpenSSH],
         }
+    }
+}
+
+impl HostPolicy {
+    // Returns the maximum allowed value for the `ConnectionAttempts` option.
+    pub fn max_connection_attempts(&self) -> u32 {
+        self.max_connection_attempts
+    }
+
+    // Returns the minimum allowed value for the `CompressionLevel` option.
+    pub fn min_compression_level(&self) -> u8 {
+        self.min_compression_level
+    }
+
+    // Returns the maximum allowed value for the `CompressionLevel` option.
+    pub fn max_compression_level(&self) -> u8 {
+        self.max_compression_level
+    }
+
+    // Returns the maximum allowed value for the `ConnectTimeout` option.
+    pub fn max_connect_timeout(&self) -> u32 {
+        self.max_connect_timeout
+    }
+
+    // Returns the ciphers that the parser will consider valid.
+    pub fn permitted_ciphers(&self) -> Vec<&'static str> {
+        self.permitted_ciphers.clone()
+    }
+
+    // Returns the host key algorithms that the parser will consider valid.
+    pub fn permitted_host_key_algorithms(&self) -> Vec<&'static str> {
+        self.permitted_host_key_algorithms.clone()
+    }
+
+    // Returns the keyboard interactive devices that the parser will consider valid.
+    pub fn permitted_kbd_interactive_devices(&self) -> Vec<&'static str> {
+        self.permitted_kbd_interactive_devices.clone()
+    }
+
+    // Returns the MACs that the parser will consider valid.
+    pub fn permitted_macs(&self) -> Vec<&'static str> {
+        self.permitted_macs.clone()
+    }
+
+    // Returns the maximum allowed value for the `NumberOfPasswordPrompts` option.
+    pub fn max_password_prompts(&self) -> u32 {
+        self.max_password_prompts
+    }
+
+    // Returns the minimum allowed value for the `Port` option.
+    pub fn min_port(&self) -> u16 {
+        self.min_port
+    }
+
+    // Returns the maximum allowed value for the `Port` option.
+    pub fn max_port(&self) -> u16 {
+        self.max_port
+    }
+
+    // Returns the maximum allowed value for the `ServerAliveCountMax` option.
+    pub fn max_server_alive_count_max(&self) -> u32 {
+        self.max_server_alive_count_max
+    }
+
+    // Returns the maximum allowed value for the `ServerAliveInterval` option.
+    pub fn max_server_alive_interval(&self) -> u32 {
+        self.max_server_alive_interval
+    }
+
+    // Returns whether to enforce standards compliance.
+    pub fn enforce_standards_compliance(&self) -> bool {
+        self.enforce_standards_compliance
+    }
+
+    // Returns the SSH protocol versions to enforce compliance with.
+    pub fn compliance_mode(&self) -> Option<Vec<ProtocolVersion>> {
+        if let Some(compliance_mode) = &self.compliance_mode {
+            return Some(compliance_mode.clone());
+        } else {
+            return None;
+        }
+    }
+
+    // Returns the supported SSH standards.
+    pub fn supported_standards(&self) -> Vec<SshStandard> {
+        self.supported_standards.clone()
     }
 }
 
@@ -100,7 +186,7 @@ impl HostPolicyBuilder {
     ///
     /// let mut builder = HostPolicyBuilder::new();
     /// let policy = builder.max_connection_attempts(5).build().unwrap();
-    /// assert_eq!(policy.max_connection_attempts, 5);
+    /// assert_eq!(policy.max_connection_attempts(), 5);
     /// ```
     pub fn max_connection_attempts(&mut self, connections: u32) -> &mut Self {
         self.policy.max_connection_attempts = connections;
@@ -115,7 +201,7 @@ impl HostPolicyBuilder {
     ///
     /// let mut builder = HostPolicyBuilder::new();
     /// let policy = builder.min_compression_level(1).build().unwrap();
-    /// assert_eq!(policy.min_compression_level, 1);
+    /// assert_eq!(policy.min_compression_level(), 1);
     /// ```
     pub fn min_compression_level(&mut self, level: u8) -> &mut Self {
         self.policy.min_compression_level = level;
@@ -130,7 +216,7 @@ impl HostPolicyBuilder {
     ///
     /// let mut builder = HostPolicyBuilder::new();
     /// let policy = builder.max_compression_level(9).build().unwrap();
-    /// assert_eq!(policy.max_compression_level, 9);
+    /// assert_eq!(policy.max_compression_level(), 9);
     /// ```
     pub fn max_compression_level(&mut self, level: u8) -> &mut Self {
         self.policy.max_compression_level = level;
@@ -145,7 +231,7 @@ impl HostPolicyBuilder {
     ///
     /// let mut builder = HostPolicyBuilder::new();
     /// let policy = builder.max_connect_timeout(30).build().unwrap();
-    /// assert_eq!(policy.max_connect_timeout, 30);
+    /// assert_eq!(policy.max_connect_timeout(), 30);
     /// ```
     pub fn max_connect_timeout(&mut self, timeout: u32) -> &mut Self {
         self.policy.max_connect_timeout = timeout;
@@ -164,12 +250,12 @@ impl HostPolicyBuilder {
     /// let policy = builder.permitted_ciphers(vec!["cipher1", "cipher2"], Some(ListSetBehavior::Append)).build().unwrap();
     /// let mut expected = constants::VALID_CIPHERS.to_vec();
     /// expected.extend(vec!["cipher1", "cipher2"]);
-    /// assert_eq!(policy.permitted_ciphers, expected);
+    /// assert_eq!(policy.permitted_ciphers(), expected);
     ///
     /// // Replace the existing list with the new ciphers
     /// let mut builder = HostPolicyBuilder::new();
     /// let policy = builder.permitted_ciphers(vec!["cipher1", "cipher2"], Some(ListSetBehavior::Replace)).build().unwrap();
-    /// assert_eq!(policy.permitted_ciphers, vec!["cipher1", "cipher2"]);
+    /// assert_eq!(policy.permitted_ciphers(), vec!["cipher1", "cipher2"]);
     ///
     /// // Remove ciphers from the existing list and append the new ciphers
     /// let mut builder = HostPolicyBuilder::new();
@@ -177,7 +263,7 @@ impl HostPolicyBuilder {
     /// let mut expected = constants::VALID_CIPHERS.to_vec();
     /// expected.retain(|&x| x != "aes128-ctr");
     /// expected.extend(vec!["cipher1", "cipher2"]);
-    /// assert_eq!(policy.permitted_ciphers, expected);
+    /// assert_eq!(policy.permitted_ciphers(), expected);
     /// ```
     pub fn permitted_ciphers(
         &mut self,
@@ -208,12 +294,12 @@ impl HostPolicyBuilder {
     /// let policy = builder.permitted_host_key_algorithms(vec!["algorithm1", "algorithm2"], Some(ListSetBehavior::Append)).build().unwrap();
     /// let mut expected = constants::VALID_HOST_KEY_ALGORITHMS.to_vec();
     /// expected.extend(vec!["algorithm1", "algorithm2"]);
-    /// assert_eq!(policy.permitted_host_key_algorithms, expected);
+    /// assert_eq!(policy.permitted_host_key_algorithms(), expected);
     ///
     /// // Replace the existing list with the new algorithms
     /// let mut builder = HostPolicyBuilder::new();
     /// let policy = builder.permitted_host_key_algorithms(vec!["algorithm1", "algorithm2"], Some(ListSetBehavior::Replace)).build().unwrap();
-    /// assert_eq!(policy.permitted_host_key_algorithms, vec!["algorithm1", "algorithm2"]);
+    /// assert_eq!(policy.permitted_host_key_algorithms(), vec!["algorithm1", "algorithm2"]);
     ///
     /// // Remove algorithms from the existing list and append the new algorithms
     /// let mut builder = HostPolicyBuilder::new();
@@ -221,7 +307,7 @@ impl HostPolicyBuilder {
     /// let mut expected = constants::VALID_HOST_KEY_ALGORITHMS.to_vec();
     /// expected.retain(|&x| x != "ssh-ed25519");
     /// expected.extend(vec!["algorithm1", "algorithm2"]);
-    /// assert_eq!(policy.permitted_host_key_algorithms, expected);
+    /// assert_eq!(policy.permitted_host_key_algorithms(), expected);
     /// ```
     pub fn permitted_host_key_algorithms(
         &mut self,
@@ -254,12 +340,12 @@ impl HostPolicyBuilder {
     /// let policy = builder.permitted_kbd_interactive_devices(vec!["device1", "device2"], Some(ListSetBehavior::Append)).build().unwrap();
     /// let mut expected = constants::VALID_KBD_INTERACTIVE_DEVICES.to_vec();
     /// expected.extend(vec!["device1", "device2"]);
-    /// assert_eq!(policy.permitted_kbd_interactive_devices, expected);
+    /// assert_eq!(policy.permitted_kbd_interactive_devices(), expected);
     ///
     /// // Replace the existing list with the new devices
     /// let mut builder = HostPolicyBuilder::new();
     /// let policy = builder.permitted_kbd_interactive_devices(vec!["device1", "device2"], Some(ListSetBehavior::Replace)).build().unwrap();
-    /// assert_eq!(policy.permitted_kbd_interactive_devices, vec!["device1", "device2"]);
+    /// assert_eq!(policy.permitted_kbd_interactive_devices(), vec!["device1", "device2"]);
     ///
     /// // Remove devices from the existing list and append the new devices
     /// let mut builder = HostPolicyBuilder::new();
@@ -267,7 +353,7 @@ impl HostPolicyBuilder {
     /// let mut expected = constants::VALID_KBD_INTERACTIVE_DEVICES.to_vec();
     /// expected.retain(|&x| x != "bsdauth");
     /// expected.extend(vec!["device1", "device2"]);
-    /// assert_eq!(policy.permitted_kbd_interactive_devices, expected);
+    /// assert_eq!(policy.permitted_kbd_interactive_devices(), expected);
     /// ```
     pub fn permitted_kbd_interactive_devices(
         &mut self,
@@ -302,12 +388,12 @@ impl HostPolicyBuilder {
     /// let policy = builder.permitted_macs(vec!["mac1", "mac2"], Some(ListSetBehavior::Append)).build().unwrap();
     /// let mut expected = constants::VALID_MACS.to_vec();
     /// expected.extend(vec!["mac1", "mac2"]);
-    /// assert_eq!(policy.permitted_macs, expected);
+    /// assert_eq!(policy.permitted_macs(), expected);
     ///
     /// // Replace the existing list with the new MACs
     /// let mut builder = HostPolicyBuilder::new();
     /// let policy = builder.permitted_macs(vec!["mac1", "mac2"], Some(ListSetBehavior::Replace)).build().unwrap();
-    /// assert_eq!(policy.permitted_macs, vec!["mac1", "mac2"]);
+    /// assert_eq!(policy.permitted_macs(), vec!["mac1", "mac2"]);
     ///
     /// // Remove MACs from the existing list and append the new MACs
     /// let mut builder = HostPolicyBuilder::new();
@@ -315,7 +401,7 @@ impl HostPolicyBuilder {
     /// let mut expected = constants::VALID_MACS.to_vec();
     /// expected.retain(|&x| x != "hmac-md5");
     /// expected.extend(vec!["mac1", "mac2"]);
-    /// assert_eq!(policy.permitted_macs, expected);
+    /// assert_eq!(policy.permitted_macs(), expected);
     /// ```
     pub fn permitted_macs(
         &mut self,
@@ -342,7 +428,7 @@ impl HostPolicyBuilder {
     ///
     /// let mut builder = HostPolicyBuilder::new();
     /// let policy = builder.max_password_prompts(3).build().unwrap();
-    /// assert_eq!(policy.max_password_prompts, 3);
+    /// assert_eq!(policy.max_password_prompts(), 3);
     /// ```
     pub fn max_password_prompts(&mut self, prompts: u32) -> &mut Self {
         self.policy.max_password_prompts = prompts;
@@ -357,7 +443,7 @@ impl HostPolicyBuilder {
     ///
     /// let mut builder = HostPolicyBuilder::new();
     /// let policy = builder.min_port(22).build().unwrap();
-    /// assert_eq!(policy.min_port, 22);
+    /// assert_eq!(policy.min_port(), 22);
     /// ```
     pub fn min_port(&mut self, port: u16) -> &mut Self {
         self.policy.min_port = port;
@@ -372,7 +458,7 @@ impl HostPolicyBuilder {
     ///
     /// let mut builder = HostPolicyBuilder::new();
     /// let policy = builder.max_port(2222).build().unwrap();
-    /// assert_eq!(policy.max_port, 2222);
+    /// assert_eq!(policy.max_port(), 2222);
     /// ```
     pub fn max_port(&mut self, port: u16) -> &mut Self {
         self.policy.max_port = port;
@@ -387,7 +473,7 @@ impl HostPolicyBuilder {
     ///
     /// let mut builder = HostPolicyBuilder::new();
     /// let policy = builder.max_server_alive_count_max(3).build().unwrap();
-    /// assert_eq!(policy.max_server_alive_count_max, 3);
+    /// assert_eq!(policy.max_server_alive_count_max(), 3);
     /// ```
     pub fn max_server_alive_count_max(&mut self, count: u32) -> &mut Self {
         self.policy.max_server_alive_count_max = count;
@@ -402,7 +488,7 @@ impl HostPolicyBuilder {
     ///
     /// let mut builder = HostPolicyBuilder::new();
     /// let policy = builder.max_server_alive_interval(30).build().unwrap();
-    /// assert_eq!(policy.max_server_alive_interval, 30);
+    /// assert_eq!(policy.max_server_alive_interval(), 30);
     /// ```
     pub fn max_server_alive_interval(&mut self, interval: u32) -> &mut Self {
         self.policy.max_server_alive_interval = interval;
@@ -418,9 +504,9 @@ impl HostPolicyBuilder {
     /// use fores::directive_mapping::ProtocolVersion;
     ///
     /// let mut builder = HostPolicyBuilder::new();
-    /// let policy = builder.enforce_standards_compliance(true).compliance_mode(vec![ProtocolVersion::OpenSSHV2]).build().unwrap();
-    /// assert_eq!(policy.enforce_standards_compliance, true);
-    /// assert_eq!(policy.compliance_mode.unwrap(), vec![ProtocolVersion::OpenSSHV2]);
+    /// let mut policy = builder.enforce_standards_compliance(true).compliance_mode(vec![ProtocolVersion::OpenSSHV2]).build().unwrap();
+    /// assert_eq!(policy.enforce_standards_compliance(), true);
+    /// assert_eq!(policy.compliance_mode().unwrap(), vec![ProtocolVersion::OpenSSHV2]);
     /// ```
     pub fn enforce_standards_compliance(&mut self, enforce: bool) -> &mut Self {
         self.policy.enforce_standards_compliance = enforce;
@@ -437,7 +523,7 @@ impl HostPolicyBuilder {
     ///
     /// let mut builder = HostPolicyBuilder::new();
     /// let policy = builder.compliance_mode(vec![ProtocolVersion::OpenSSHV2]).build().unwrap();
-    /// assert_eq!(policy.compliance_mode.unwrap(), vec![ProtocolVersion::OpenSSHV2]);
+    /// assert_eq!(policy.compliance_mode().unwrap(), vec![ProtocolVersion::OpenSSHV2]);
     /// ```
     pub fn compliance_mode(&mut self, protocols: Vec<ProtocolVersion>) -> &mut Self {
         self.policy.compliance_mode = Some(protocols);
@@ -453,7 +539,7 @@ impl HostPolicyBuilder {
     ///
     /// let mut builder = HostPolicyBuilder::new();
     /// let policy = builder.supported_standards(vec![SshStandard::OpenSSH]).build().unwrap();
-    /// assert_eq!(policy.supported_standards, vec![SshStandard::OpenSSH]);
+    /// assert_eq!(policy.supported_standards(), vec![SshStandard::OpenSSH]);
     /// ```
     pub fn supported_standards(&mut self, standards: Vec<SshStandard>) -> &mut Self {
         self.policy.supported_standards = standards;
